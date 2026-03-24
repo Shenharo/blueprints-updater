@@ -2,8 +2,6 @@ name: Lint and Type Check
 
 on:
   push:
-    branches:
-      - main
     paths:
       - "**.py"
       - "pyproject.toml"
