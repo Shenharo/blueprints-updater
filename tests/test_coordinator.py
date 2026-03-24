@@ -169,7 +169,7 @@ async def test_async_update_blueprint(coordinator):
         "source_url": "https://github.com/user/repo/blob/main/test.yaml",
         "hash": "old_hash",
     }
-    results = {}
+    results = {path: {"last_error": None, "hash": "old_hash"}}
 
     mock_response = MagicMock()
     mock_response.status = 200
@@ -191,3 +191,99 @@ async def test_async_update_blueprint(coordinator):
     assert results[path]["updatable"] is True
     assert results[path]["remote_hash"] == "new_hash"
     assert "source_url" in results[path]["remote_content"]
+
+
+@pytest.mark.asyncio
+async def test_async_install_blueprint(hass, coordinator):
+    """Test installing a blueprint and reloading services."""
+    path = "/config/blueprints/test.yaml"
+    remote_content = "blueprint:\n  name: Test"
+
+    # Mock services: automation and script exist, template does not
+    hass.services.has_service = MagicMock(
+        side_effect=lambda domain, service: (
+            domain in ["automation", "script"] if service == "reload" else False
+        )
+    )
+    hass.services.async_call = AsyncMock()
+
+    with (
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=True),
+    ):
+        await coordinator.async_install_blueprint(path, remote_content)
+
+    # Verify automation and script were called, template was not
+    assert hass.services.async_call.call_count == 2
+    hass.services.async_call.assert_any_call("automation", "reload")
+    hass.services.async_call.assert_any_call("script", "reload")
+
+    # Verify template was NOT called
+    with pytest.raises(AssertionError):
+        hass.services.async_call.assert_any_call("template", "reload")
+
+
+@pytest.mark.asyncio
+async def test_async_update_data_partial_failure(coordinator):
+    """Test that one failed blueprint does not stop others."""
+    # Setup 2 blueprints
+    blueprints = {
+        "/config/blueprints/good.yaml": {
+            "name": "Good",
+            "rel_path": "good.yaml",
+            "source_url": "https://url.com/good.yaml",
+            "hash": "good_hash",
+        },
+        "/config/blueprints/bad.yaml": {
+            "name": "Bad",
+            "rel_path": "bad.yaml",
+            "source_url": "https://url.com/bad.yaml",
+            "hash": "bad_hash",
+        },
+    }
+
+    # Mock _scan_blueprints
+    coordinator._scan_blueprints = MagicMock(return_value=blueprints)
+
+    # Mock responses: good = 200, bad = 404
+    mock_good_resp = MagicMock()
+    mock_good_resp.status = 200
+    mock_good_resp.raise_for_status = MagicMock()
+    mock_good_resp.text = AsyncMock(return_value="blueprint:\n  name: Good")
+
+    mock_bad_resp = MagicMock()
+    mock_bad_resp.status = 404
+    mock_bad_resp.raise_for_status = MagicMock(side_effect=Exception("404 Not Found"))
+
+    @patch("aiohttp.ClientSession")
+    async def run_test(mock_session_class):
+        mock_session = mock_session_class.return_value
+        mock_session.__aenter__.return_value = mock_session
+
+        def get_side_effect(url, **kwargs):
+            m = MagicMock()
+            if "good.yaml" in url:
+                m.__aenter__.return_value = mock_good_resp
+            else:
+                m.__aenter__.return_value = mock_bad_resp
+            return m
+
+        mock_session.get.side_effect = get_side_effect
+
+        with patch("custom_components.blueprints_updater.coordinator.hashlib.sha256") as mock_hash:
+            mock_hash.return_value.hexdigest.return_value = "new_hash"
+            return await coordinator._async_update_data()
+
+    results = await run_test()
+
+    # Verify both are in results
+    assert "/config/blueprints/good.yaml" in results
+    assert "/config/blueprints/bad.yaml" in results
+
+    # Good one should be updatable
+    assert results["/config/blueprints/good.yaml"]["updatable"] is True
+    assert results["/config/blueprints/good.yaml"]["last_error"] is None
+
+    # Bad one should have error
+    assert results["/config/blueprints/bad.yaml"]["last_error"] is not None
+    assert "404" in results["/config/blueprints/bad.yaml"]["last_error"]

@@ -73,7 +73,21 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.filter_mode,
             self.selected_blueprints,
         )
-        results: dict[str, Any] = {}
+
+        results: dict[str, Any] = {
+            path: {
+                "name": info["name"],
+                "rel_path": info["rel_path"],
+                "source_url": info["source_url"],
+                "local_hash": info["hash"],
+                "updatable": False,
+                "remote_hash": None,
+                "remote_content": None,
+                "last_error": None,
+            }
+            for path, info in blueprints.items()
+        }
+
         semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
 
         async with aiohttp.ClientSession() as session:
@@ -87,17 +101,37 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             auto_update_tasks = [
                 self.async_install_blueprint(path, info["remote_content"])
                 for path, info in results.items()
-                if info["updatable"] and not info.get("last_error")
+                if info["updatable"] and info["remote_content"] and not info.get("last_error")
             ]
             if auto_update_tasks:
                 _LOGGER.info("Auto-updating %d blueprints", len(auto_update_tasks))
                 await asyncio.gather(*auto_update_tasks)
-                return await self.hass.async_add_executor_job(
+
+                new_blueprints = await self.hass.async_add_executor_job(
                     self._scan_blueprints,
                     self.hass,
                     self.filter_mode,
                     self.selected_blueprints,
                 )
+                for path, info in new_blueprints.items():
+                    if path in results:
+                        results[path].update(
+                            {
+                                "local_hash": info["hash"],
+                                "updatable": False,
+                            }
+                        )
+                    else:
+                        results[path] = {
+                            "name": info["name"],
+                            "rel_path": info["rel_path"],
+                            "source_url": info["source_url"],
+                            "local_hash": info["hash"],
+                            "updatable": False,
+                            "remote_hash": None,
+                            "remote_content": None,
+                            "last_error": None,
+                        }
 
         return results
 
@@ -111,9 +145,9 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             await self.hass.async_add_executor_job(_save_file, path, remote_content)
 
-            await self.hass.services.async_call("automation", "reload")
-            await self.hass.services.async_call("script", "reload")
-            await self.hass.services.async_call("template", "reload")
+            for domain in ("automation", "script", "template"):
+                if self.hass.services.has_service(domain, "reload"):
+                    await self.hass.services.async_call(domain, "reload")
 
             _LOGGER.info("Blueprint at %s updated successfully", path)
         except Exception as err:
@@ -153,6 +187,7 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                     if not remote_content:
                         _LOGGER.warning("Empty content received from %s", normalized_url)
+                        results[path]["last_error"] = "Empty content received"
                         return
 
                     remote_content = self._ensure_source_url(remote_content, source_url)
@@ -179,18 +214,17 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         last_error = f"YAML Syntax Error: {err}"
 
-                    results[path] = {
-                        "name": info["name"],
-                        "rel_path": info["rel_path"],
-                        "source_url": source_url,
-                        "local_hash": local_hash,
-                        "remote_hash": remote_hash,
-                        "remote_content": remote_content,
-                        "updatable": updatable,
-                        "last_error": last_error,
-                    }
+                    results[path].update(
+                        {
+                            "remote_hash": remote_hash,
+                            "remote_content": remote_content,
+                            "updatable": updatable,
+                            "last_error": last_error,
+                        }
+                    )
             except Exception as err:
                 _LOGGER.error("Error fetching blueprint from %s: %s", source_url, err)
+                results[path]["last_error"] = f"Fetch Error: {err}"
 
     @staticmethod
     def _normalize_url(url: str) -> str:

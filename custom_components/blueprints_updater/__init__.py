@@ -23,10 +23,14 @@ PLATFORMS: list[Platform] = [Platform.UPDATE]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Blueprints Updater from a config entry."""
     _LOGGER.debug("Setting up Blueprints Updater entry: %s", entry.entry_id)
-    interval_hours = entry.options.get(
-        CONF_UPDATE_INTERVAL,
-        entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
-    )
+
+    if entry.data:
+        _LOGGER.info("Migrating configuration data to options for %s", entry.entry_id)
+        hass.config_entries.async_update_entry(
+            entry, data={}, options={**entry.options, **entry.data}
+        )
+
+    interval_hours = entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS)
     filter_mode = entry.options.get(CONF_FILTER_MODE, FILTER_MODE_ALL)
     selected_blueprints = entry.options.get(CONF_SELECTED_BLUEPRINTS, [])
 

@@ -107,7 +107,11 @@ class BlueprintsUpdaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="single_instance_allowed")
 
         if user_input is not None:
-            return self.async_create_entry(title="Blueprints Updater", data=user_input)
+            return self.async_create_entry(
+                title="Blueprints Updater",
+                data={},
+                options=user_input,
+            )
 
         options = await _async_get_blueprint_options(self.hass)
 

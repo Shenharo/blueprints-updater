@@ -11,6 +11,8 @@ async def test_update_entities_lifecycle(hass):
     """Test that entities are added and removed correctly."""
     entry = MagicMock()
     entry.entry_id = "test_entry"
+    entry.options = {}
+    entry.data = {}
     entry.async_on_unload = MagicMock()
 
     coordinator = MagicMock()
