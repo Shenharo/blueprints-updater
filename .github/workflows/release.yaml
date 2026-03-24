@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 1.0.2)"
+        required: true
+        type: string
 
 jobs:
   release:
@@ -17,29 +20,64 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version from tag
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set and clean version
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: |
+          RAW_VERSION="${{ github.event.inputs.version }}"
+          CLEAN_VERSION="${RAW_VERSION#v}"
+          echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=$RAW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        run: |
+          if git rev-parse "${{ steps.get_version.outputs.TAG_NAME }}" >/dev/null 2>&1; then
+            echo "Error: Tag ${{ steps.get_version.outputs.TAG_NAME }} already exists."
+            exit 1
+          fi
 
       - name: Update manifest.json
         run: |
-          jq '.version = "${{ steps.get_version.outputs.VERSION }}"' custom_components/blueprints_updater/manifest.json > manifest.json.tmp
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          jq ".version = \"$VERSION\"" custom_components/blueprints_updater/manifest.json > manifest.json.tmp
           mv manifest.json.tmp custom_components/blueprints_updater/manifest.json
 
       - name: Update pyproject.toml
         run: |
-          sed -i 's/^version = ".*"/version = "${{ steps.get_version.outputs.VERSION }}"/' pyproject.toml
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+
+      - name: Update uv.lock
+        run: uv lock
 
       - name: Commit and push changes
+        id: commit_push
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/blueprints_updater/manifest.json pyproject.toml
-          git commit -m "Bump version to ${{ steps.get_version.outputs.VERSION }}"
-          git pull --rebase origin ${{ github.event.repository.default_branch }}
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git add custom_components/blueprints_updater/manifest.json pyproject.toml uv.lock
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          else
+            git commit -m "Bump version to ${{ steps.get_version.outputs.VERSION }}"
+            git pull --rebase origin ${{ github.event.repository.default_branch }}
+            git push origin HEAD:${{ github.event.repository.default_branch }}
+            echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        run: |
+          TAG="${{ steps.get_version.outputs.TAG_NAME }}"
+          SHA="${{ steps.commit_push.outputs.COMMIT_SHA }}"
+          git tag "$TAG" "$SHA"
+          git push origin "$TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+          target_commitish: ${{ steps.commit_push.outputs.COMMIT_SHA }}
           generate_release_notes: true
