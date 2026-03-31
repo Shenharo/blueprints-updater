@@ -9,15 +9,15 @@
 ## Tính năng chính
 
 - **Trải nghiệm như hàng chính chủ**: Tích hợp mượt mà vào Home Assistant, hoạt động y hệt các bản cập nhật hệ thống hay HACS. Bạn sẽ thấy các thực thể cập nhật hiện ngay trên dashboard, dễ dàng cập nhật từng cái hoặc tất cả cùng lúc chỉ với một cú nhấp chuột.
-- **An toàn tuyệt đối, tự động sao lưu**: Mỗi bản cập nhật đều được xác thực kỹ lưỡng về cú pháp YAML và độ tương thích phiên bản trước khi áp dụng. Hệ thống tự động lưu lại các bản sao lưu xoay vòng, giúp bạn trở về bản cũ ngay lập tức nếu bản mới phát sinh lỗi.
+- **An toàn tuyệt đối, tự động sao lưu**: Mỗi bản cập nhật đều được xác thực kỹ lưỡng về cú pháp YAML và độ tương thích phiên bản trước khi áp dụng. Ngoài việc tự động lưu lại các bản sao lưu xoay vòng để khôi phục nhanh, cơ chế cập nhật còn được thiết kế cực kỳ an toàn, đảm bảo file của bạn không bao giờ bị hỏng kể cả khi gặp sự cố bất ngờ (như mất điện) giữa chừng.
 - **Cài đặt một lần, dùng mãi mãi**: Khi bật chế độ tự động cập nhật, bạn có thể hoàn toàn rảnh tay. Hệ thống sẽ tự sao lưu bản đang dùng, tải bản mới nhất và gửi thông báo cho biết chính xác những blueprint nào vừa được cập nhật.
 - **Phát hiện thay đổi thông minh**: Thay vì tải tệp tin liên tục, công cụ này sử dụng mã băm SHA256 và tiêu đề ETag để chỉ tải về khi thực sự có thay đổi. Cách làm này giúp tiết kiệm băng thông và giữ cho hệ thống luôn vận hành nhẹ nhàng.
 - **Hỗ trợ nhiều nguồn khác nhau**: Dù blueprint nằm trên GitHub, Gist hay được chia sẻ trong các bài viết trên Diễn đàn cộng đồng Home Assistant, trình cập nhật này đều có khả năng xử lý chính xác và tin cậy.
 - **Biết rõ tác động trước khi thực hiện**: Hệ thống hiển thị số lượng Automation hoặc Script đang sử dụng blueprint đó, giúp bạn đánh giá nhanh tác động của bản cập nhật đối với hệ thống nhà thông minh của mình.
 - **Kiểm soát hoàn toàn theo ý muốn**: Bạn có quyền chọn theo dõi tất cả blueprint hoặc sử dụng danh sách Whitelist/Blacklist để chỉ tập trung vào những mục thực sự quan trọng.
 - **Cập nhật tức thì, không cần khởi động lại**: Các miền liên quan (automation, script hoặc template) sẽ tự động được làm mới ngay sau khi cập nhật. Mọi thay đổi có hiệu lực tức thì mà không làm gián đoạn hoạt động của Home Assistant.
-- **Duy trì liên kết nguồn vĩnh viễn**: Tự động bảo tồn các thẻ thông tin link gốc trong tệp YAML, đảm bảo blueprint của bạn luôn giữ được kết nối để nhận các bản cập nhật trong tương lai.
-- **Tự động nhận diện và đa ngôn ngữ**: Các blueprint mới thêm vào sẽ được nhận diện ngay mà không cần khởi động lại. Giao diện được dịch ra nhiều ngôn ngữ và tự động điều chỉnh theo cấu hình Home Assistant của bạn.
+- **Giữ link nguồn vĩnh viễn**: Tự động bảo tồn các thẻ thông tin link gốc trong tệp YAML, đảm bảo blueprint của bạn luôn giữ được kết nối để nhận các bản cập nhật trong tương lai.
+- **Khởi động siêu tốc và tự động nhận diện**: Blueprint mới thêm vào sẽ được nhận ngay mà không cần khởi động lại. Danh sách blueprint cũng sẽ hiển thị ngay lập tức mỗi khi bạn mở Home Assistant thay vì phải chờ đợi hệ thống quét mạng chậm chạp.
 
 ---
 
@@ -46,7 +46,7 @@
 
 1.  Đi tới **Cài đặt (Settings)** > **Thiết bị & Dịch vụ (Devices & Services)**.
 2.  Nhấp vào **Thêm bộ tích hợp (Add Integration)** và tìm kiếm **Blueprints Updater**.
-3.  **Bật Tự động Cập nhật**: (Tùy chọn) Nếu được bật, các blueprint phù hợp với tiêu chí của bạn sẽ được cập nhật tự động mà không cần can thiệp thủ công. **Một thông báo hệ thống sẽ xuất hiện** sau mỗi lần tự động cập nhật thành công để bạn biết những gì đã thay đổi.
+3.  **Bật Tự động Cập nhật**: (Tùy chọn) Nếu được bật, các blueprint phù hợp với tiêu chí của bạn sẽ được cập nhật tự động mà không cần can thiệp thủ công. **Một thông báo hệ thống sẽ xuất hiện** sau mỗi lần tự động cập nhật thành công để bạn biết những blueprint nào đã được cập nhật.
 4.  Chọn **Khoảng thời gian cập nhật (Update Interval)** (mặc định là 24 giờ).
 5.  Chọn **Chế độ lọc (Filter Mode)**:
     - **Cập nhật tất cả (Update All)**: Theo dõi tất cả blueprint tìm thấy trong thư mục của bạn.
