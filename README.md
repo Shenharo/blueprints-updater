@@ -13,7 +13,7 @@
 - **Set it and forget it**: Enable auto-updates and let the system do the work for you. It automatically backs up your current blueprint, downloads the new version, and notifies you exactly which blueprints were updated.
 - **Efficient change detection**: Instead of constant downloads, it uses SHA256 hashing and ETag headers to pull data only when an actual change is detected. This saves bandwidth and keeps your system performing at its best.
 - **Broad source support**: Whether a blueprint is hosted on GitHub, GitHub Gist, or shared on the Home Assistant Community Forum, this updater handles it accurately.
-- **Know the impact before you update**: Displays the exact number of Automations or Scripts currently using a blueprint, so you know exactly how the update will affect your setup.
+- **Know the impact before you update**: Displays the exact number of Automations or Scripts currently using the blueprint, so you know exactly how the update will affect your setup.
 - **Complete control**: Choose to track all your blueprints or use granulated Whitelists and Blacklists to monitor only the ones you want.
 - **No-restart reloads**: Relevant domains (automation, script, or template) are automatically reloaded after an update. Your changes take effect immediately without needing to reboot Home Assistant.
 - **Preserves source links**: Automatically maintains the source URL metadata in your YAML files, ensuring your blueprints remain trackable and updatable in the long run.

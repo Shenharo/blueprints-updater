@@ -18,6 +18,9 @@ on:
       - "uv.lock"
       - ".github/workflows/python_check.yaml"
 
+permissions:
+  contents: read
+
 jobs:
   python-checks:
     runs-on: ubuntu-latest
