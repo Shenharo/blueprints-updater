@@ -2,14 +2,14 @@
 
 **[ 🇺🇸 English | [🇻🇳 Tiếng Việt](README_vi.md) ]**
 
-**Blueprints Updater** is a Home Assistant integration that allows you to automatically track and update your installed blueprints (**Automations**, **Scripts**, and **Template Entities**) from their original source URLs. It works just like a native `update` entity, providing notifications and a one-click update button when a new version of a blueprint is detected.
+**Blueprints Updater** keeps your Home Assistant setup up-to-date by automatically tracking and updating your installed blueprints (Automations, Scripts, and Template Entities). It integrates seamlessly as a native update entity, giving you peace of mind with one-click updates directly from your dashboard.
 
 ---
 
 ## Features
 
 - **Feels like a native feature**: Integrates seamlessly with Home Assistant, working just like official or HACS updates. You'll get standard update entities on your dashboard, making it easy to stay up-to-date with a single click or bulk update all blueprints at once.
-- **Safety first with automatic backups**: Every update is validated for YAML syntax and version compatibility before being applied. The integration also maintains rotating backups, and the update process is designed to be highly reliable-your files won't be corrupted even in the event of a power outage or system crash.
+- **Safety first with automatic backups**: Every update is validated for YAML syntax and version compatibility before being applied. The integration also maintains rotating backups, and the update process is designed to be highly reliable. Your files won't be corrupted even in the event of a power outage or system crash.
 - **Set it and forget it**: Enable auto-updates and let the system do the work for you. It automatically backs up your current blueprint, downloads the new version, and notifies you exactly which blueprints were updated.
 - **Efficient change detection**: Instead of constant downloads, it uses SHA256 hashing and ETag headers to pull data only when an actual change is detected. This saves bandwidth and keeps your system performing at its best.
 - **Broad source support**: Whether a blueprint is hosted on GitHub, GitHub Gist, or shared on the Home Assistant Community Forum, this updater handles it accurately.
@@ -17,7 +17,7 @@
 - **Complete control**: Choose to track all your blueprints or use granulated Whitelists and Blacklists to monitor only the ones you want.
 - **No-restart reloads**: Relevant domains (automation, script, or template) are automatically reloaded after an update. Your changes take effect immediately without needing to reboot Home Assistant.
 - **Preserves source links**: Automatically maintains the source URL metadata in your YAML files, ensuring your blueprints remain trackable and updatable in the long run.
-- **Instant results and dynamic discovery**: New blueprints are detected automatically without a restart. Your entire blueprint list appears instantly whenever you open Home Assistant-no more waiting for slow network scans to finish before you can see your data. The interface is available in several languages and adapts to your Home Assistant settings.
+- **Instant results and dynamic discovery**: New blueprints are detected automatically without a restart. Your entire blueprint list appears instantly whenever you open Home Assistant. No more waiting for slow network scans to finish before you can see your data. The interface is available in several languages and adapts to your Home Assistant settings.
 
 ---
 
@@ -76,7 +76,7 @@ If you find that a newly updated blueprint breaks your automations or has an inc
 
 The integration will look for the specified numbered backup file, restore the original YAML content, and automatically reload your automations and scripts to apply the change immediately.
 
-### Applying Changes (Adding/Deleting Blueprints)
+### Refreshing the Blueprint List
 
 Since Home Assistant does not constantly monitor the file system to save resources, **newly added or deleted blueprints will not be reflected immediately**.
 
@@ -86,7 +86,7 @@ To apply changes instantly without waiting for the next scheduled background sca
 2. **Reload the Integration**: Go to **Settings** > **Devices & Services** > **Blueprints Updater**, click the three dots, and select **Reload**.
 3. **Restart Home Assistant**.
 
-### Testing the Integration
+### See it in action!
 
 If you want to see how the update process works immediately, you can use the **Motion-Activated Light/Switch (Frequent Updates)** blueprint. This blueprint is updated automatically frequently via GitHub Actions to simulate a new release.
 

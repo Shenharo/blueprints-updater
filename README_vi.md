@@ -2,7 +2,7 @@
 
 **[ [🇺🇸 English](README.md) | 🇻🇳 Tiếng Việt ]**
 
-**Blueprints Updater** là một tích hợp cho Home Assistant giúp bạn tự động theo dõi và cập nhật các blueprint đã cài đặt (**Automations**, **Scripts**, và **Template Entities**) từ URL nguồn ban đầu. Nó hoạt động giống như một thực thể cập nhật (update entity) gốc, cung cấp thông báo và nút cập nhật bằng một cú nhấp chuột khi phát hiện phiên bản mới.
+**Blueprints Updater** giúp hệ thống Home Assistant của bạn luôn được làm mới bằng cách tự động theo dõi và cập nhật các blueprint (Automations, Scripts, và Template Entities). Cài đặt một lần, mọi thứ sẽ hoạt động mượt mà như một tính năng có sẵn, giúp bạn yên tâm cập nhật chỉ với một cú chạm ngay trên dashboard.
 
 ---
 
@@ -17,13 +17,13 @@
 - **Kiểm soát hoàn toàn theo ý muốn**: Bạn có quyền chọn theo dõi tất cả blueprint hoặc sử dụng danh sách Whitelist/Blacklist để chỉ tập trung vào những mục thực sự quan trọng.
 - **Cập nhật tức thì, không cần khởi động lại**: Các miền liên quan (automation, script hoặc template) sẽ tự động được làm mới ngay sau khi cập nhật. Mọi thay đổi có hiệu lực tức thì mà không làm gián đoạn hoạt động của Home Assistant.
 - **Giữ link nguồn vĩnh viễn**: Tự động bảo tồn các thẻ thông tin link gốc trong tệp YAML, đảm bảo blueprint của bạn luôn giữ được kết nối để nhận các bản cập nhật trong tương lai.
-- **Khởi động siêu tốc và tự động nhận diện**: Blueprint mới thêm vào sẽ được nhận ngay mà không cần khởi động lại. Danh sách blueprint cũng sẽ hiển thị ngay lập tức mỗi khi bạn mở Home Assistant thay vì phải chờ đợi hệ thống quét mạng chậm chạp.
+- **Khởi động siêu tốc và tự động nhận diện**: Blueprint mới thêm vào sẽ được nhận ngay mà không cần khởi động lại. Danh sách blueprint cũng sẽ hiển thị ngay lập tức mỗi khi bạn mở Home Assistant thay vì phải chờ đợi hệ thống quét mạng chậm chạp. Giao diện cũng hỗ trợ nhiều ngôn ngữ và tự động điều chỉnh theo cài đặt của bạn.
 
 ---
 
 ## Cài đặt
 
-### Tùy chọn 1: Sử dụng HACS (Khuyến nghị)
+### Cách 1: Sử dụng HACS (Khuyên dùng)
 
 [![Add Blueprints Updater to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=luuquangvu&repository=blueprints-updater&category=integration)
 
@@ -34,7 +34,7 @@
 5.  Tìm kiếm **Blueprints Updater** và nhấp vào **Tải xuống (Download)**.
 6.  Khởi động lại Home Assistant.
 
-### Tùy chọn 2: Cài đặt thủ công
+### Cách 2: Cài đặt thủ công
 
 1.  Tải bản phát hành mới nhất và giải nén các tệp.
 2.  Sao chép thư mục `custom_components/blueprints_updater` vào thư mục `config/custom_components/` của Home Assistant.
@@ -42,7 +42,7 @@
 
 ---
 
-## Thiết lập & Cấu hình
+## Hướng dẫn thiết lập & Cấu hình
 
 1.  Đi tới **Cài đặt (Settings)** > **Thiết bị & Dịch vụ (Devices & Services)**.
 2.  Nhấp vào **Thêm bộ tích hợp (Add Integration)** và tìm kiếm **Blueprints Updater**.
@@ -76,7 +76,7 @@ Nếu bạn phát hiện ra rằng bản blueprint mới cập nhật làm hỏn
 
 Tiện ích sẽ tự động tìm tệp sao lưu tương ứng, khôi phục lại nội dung YAML gốc, và tự động tải lại (reload) các automations và scripts để áp dụng các thay đổi ngay lập tức.
 
-### Áp dụng thay đổi (Thêm/Xóa Blueprints)
+### Làm mới danh sách Blueprint
 
 Vì Home Assistant không liên tục giám sát tệp hệ thống để tiết kiệm tài nguyên, nên **việc thêm hoặc xóa blueprint sẽ không được cập nhật ngay lập tức**.
 
@@ -86,7 +86,7 @@ Vì Home Assistant không liên tục giám sát tệp hệ thống để tiết
 2. **Reload Tích hợp**: Vào **Cài đặt (Settings)** > **Thiết bị & Dịch vụ (Devices & Services)** > **Blueprints Updater**, nhấn vào ba chấm và chọn **Tải lại (Reload)**.
 3. **Khởi động lại Home Assistant**.
 
-### Thử nghiệm tính năng
+### Xem thử ngay!
 
 Nếu bạn muốn thấy quy trình cập nhật hoạt động như thế nào ngay lập tức, bạn có thể sử dụng bản thiết kế **Motion-Activated Light/Switch (Frequent Updates)**. Bản thiết kế này được cập nhật tự động thường xuyên thông qua GitHub Actions để mô phỏng một bản phát hành mới.
 
