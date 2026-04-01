@@ -14,6 +14,7 @@ DEFAULT_MAX_BACKUPS = 3
 FILTER_MODE_ALL = "all"
 FILTER_MODE_WHITELIST = "whitelist"
 FILTER_MODE_BLACKLIST = "blacklist"
+ALLOWED_RELOAD_DOMAINS = {"automation", "script", "template"}
 
 DEFAULT_UPDATE_INTERVAL_HOURS = 24
 
@@ -38,3 +39,13 @@ MAX_RETRIES = 4
 RETRY_BACKOFF = 8
 MIN_SEND_INTERVAL = 0.5
 MAX_SEND_INTERVAL = 1.5
+
+SPECIAL_USE_TLDS = {
+    "local",
+    "localhost",
+    "test",
+    "invalid",
+    "example",
+    "internal",
+    "onion",
+}
