@@ -20,14 +20,14 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Hassfest validation
-        uses: home-assistant/actions/hassfest@master
+        uses: home-assistant/actions/hassfest@5f5b077d63a1e4c53019231409a0c4d791fb74e5 # master
 
       - name: HACS validation
-        uses: hacs/action@main
+        uses: hacs/action@dcb30e72781db3f207d5236b861172774ab0b485 # main
         with:
           category: integration
