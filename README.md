@@ -1,5 +1,12 @@
 # Blueprints Updater for Home Assistant
 
+[![CodeQL](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql)
+[![Python Checks](https://github.com/luuquangvu/blueprints-updater/actions/workflows/python_check.yaml/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/python_check.yaml)
+[![Validate](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml)
+![GitHub Release](https://img.shields.io/github/v/release/luuquangvu/blueprints-updater)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+![GitHub License](https://img.shields.io/github/license/luuquangvu/blueprints-updater)
+
 **[ 🇺🇸 English | [🇻🇳 Tiếng Việt](README_vi.md) ]**
 
 **Blueprints Updater** keeps your Home Assistant setup up-to-date by automatically tracking and updating your installed blueprints (Automations, Scripts, and Template Entities). It integrates seamlessly as a native update entity, giving you peace of mind with one-click updates directly from your dashboard.

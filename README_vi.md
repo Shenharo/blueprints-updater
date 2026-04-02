@@ -1,5 +1,12 @@
 # Blueprints Updater cho Home Assistant
 
+[![CodeQL](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql)
+[![Python Checks](https://github.com/luuquangvu/blueprints-updater/actions/workflows/python_check.yaml/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/python_check.yaml)
+[![Validate](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml/badge.svg)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml)
+![GitHub Release](https://img.shields.io/github/v/release/luuquangvu/blueprints-updater)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+![GitHub License](https://img.shields.io/github/license/luuquangvu/blueprints-updater)
+
 **[ [🇺🇸 English](README.md) | 🇻🇳 Tiếng Việt ]**
 
 **Blueprints Updater** giúp hệ thống Home Assistant của bạn luôn được làm mới bằng cách tự động theo dõi và cập nhật các blueprint (Automations, Scripts, và Template Entities). Cài đặt một lần, mọi thứ sẽ hoạt động mượt mà như một tính năng có sẵn, giúp bạn yên tâm cập nhật chỉ với một cú chạm ngay trên dashboard.
