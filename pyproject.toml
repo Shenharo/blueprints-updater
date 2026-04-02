@@ -3,7 +3,7 @@ name = "blueprints-updater"
 version = "1.11.3"
 description = "Blueprints Updater for Home Assistant"
 requires-python = ">=3.14.2"
-dependencies = ["homeassistant", "httpx", "PyYAML", "voluptuous"]
+dependencies = ["homeassistant>=2026.4.0", "httpx", "PyYAML", "voluptuous"]
 
 [dependency-groups]
 dev = ["ruff", "ty", "pytest", "pytest-asyncio"]
