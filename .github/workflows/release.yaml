@@ -7,6 +7,11 @@ on:
         description: "Version to release (e.g., 1.0.2)"
         required: true
         type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   release:
@@ -31,20 +36,42 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set and clean version
+      - name: Setup version
         id: get_version
         run: |
-          RAW_VERSION="${{ github.event.inputs.version }}"
-          CLEAN_VERSION="${RAW_VERSION#v}"
-          echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
-          echo "TAG_NAME=$RAW_VERSION" >> $GITHUB_OUTPUT
+          VERSION="${{ github.event.inputs.version }}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check if tag already exists
+      - name: Validate version
         run: |
-          if git rev-parse "${{ steps.get_version.outputs.TAG_NAME }}" >/dev/null 2>&1; then
-            echo "Error: Tag ${{ steps.get_version.outputs.TAG_NAME }} already exists."
+          NEW_VERSION="${{ steps.get_version.outputs.VERSION }}"
+          TAG_NAME="${{ steps.get_version.outputs.TAG_NAME }}"
+
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Error: Tag $TAG_NAME already exists."
             exit 1
           fi
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+          LATEST_VERSION="$LATEST_TAG"
+
+          uv run --with packaging python -c "
+          from packaging.version import parse, InvalidVersion
+          import sys
+
+          try:
+              v_new = parse('$NEW_VERSION')
+              v_old = parse('$LATEST_VERSION')
+          except InvalidVersion as e:
+              print(f'Error: Invalid version format -> {e}')
+              sys.exit(1)
+
+          if not (v_new > v_old):
+              print(f'Error: New version ({v_new}) must be strictly greater than the latest released version ({v_old}).')
+              sys.exit(1)
+          "
+          echo "Version validation passed."
 
       - name: Update manifest.json
         run: |
@@ -92,3 +119,4 @@ jobs:
           tag: ${{ steps.get_version.outputs.TAG_NAME }}
           commit: ${{ steps.commit_push.outputs.COMMIT_SHA }}
           generateReleaseNotes: true
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
