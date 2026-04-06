@@ -8,27 +8,26 @@
 [![Validation](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/validate.yaml?style=flat&logo=github&label=Validation)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/github-code-scanning/codeql?style=flat&logo=github&label=CodeQL)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql)
 [![Prettier](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/prettier.yaml?style=flat&logo=prettier&label=Prettier)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/prettier.yaml)
-[![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/luuquangvu/blueprints-updater?style=flat&logo=coderabbit&label=CodeRabbit+Reviews)](https://github.com/luuquangvu/blueprints-updater/pulls)
 
 **[ [🇺🇸 English](README.md) | 🇻🇳 Tiếng Việt ]**
 
-**Blueprints Updater** giúp hệ thống Home Assistant của bạn luôn được làm mới bằng cách tự động theo dõi và cập nhật các blueprint (Automations, Scripts, và Template Entities). Cài đặt một lần, mọi thứ sẽ hoạt động mượt mà như một tính năng có sẵn, giúp bạn yên tâm cập nhật chỉ với một cú chạm ngay trên dashboard.
+**Blueprints Updater** giúp các bản thiết kế (blueprint) trên Home Assistant luôn duy trì ở phiên bản mới nhất thông qua cơ chế tự động theo dõi và cập nhật (hỗ trợ Automations, Scripts và Template Entities). Tiện ích tích hợp sâu như một thực thể cập nhật gốc, cho phép bạn nâng cấp toàn bộ hệ thống chỉ với một cú nhấp chuột ngay trên bảng điều khiển.
 
 ---
 
 ## Tính năng chính
 
-- **Trải nghiệm như hàng chính chủ**: Tích hợp mượt mà vào Home Assistant, hoạt động y hệt các bản cập nhật hệ thống hay HACS. Bạn sẽ thấy các thực thể cập nhật hiện ngay trên dashboard, dễ dàng cập nhật từng cái hoặc tất cả cùng lúc chỉ với một cú nhấp chuột.
-- **An toàn tuyệt đối, tự động sao lưu**: Mỗi bản cập nhật đều được xác thực kỹ lưỡng về cú pháp YAML và độ tương thích phiên bản trước khi áp dụng. Ngoài việc tự động lưu lại các bản sao lưu xoay vòng để khôi phục nhanh, cơ chế cập nhật còn được thiết kế cực kỳ an toàn, đảm bảo file của bạn không bao giờ bị hỏng kể cả khi gặp sự cố bất ngờ (như mất điện) giữa chừng.
-- **Cài đặt một lần, dùng mãi mãi**: Khi bật chế độ tự động cập nhật, bạn có thể hoàn toàn rảnh tay. Hệ thống sẽ tự sao lưu bản đang dùng, tải bản mới nhất và gửi thông báo cho biết chính xác những blueprint nào vừa được cập nhật.
-- **Phát hiện thay đổi thông minh**: Thay vì tải tệp tin liên tục, công cụ này sử dụng mã băm SHA256 và tiêu đề ETag để chỉ tải về khi thực sự có thay đổi. Cách làm này giúp tiết kiệm băng thông và giữ cho hệ thống luôn vận hành nhẹ nhàng.
-- **Hỗ trợ nhiều nguồn khác nhau**: Dù blueprint nằm trên GitHub, Gist hay được chia sẻ trong các bài viết trên Diễn đàn cộng đồng Home Assistant, trình cập nhật này đều có khả năng xử lý chính xác và tin cậy.
-- **Biết rõ tác động trước khi thực hiện**: Hệ thống hiển thị số lượng Automation hoặc Script đang sử dụng blueprint đó, giúp bạn đánh giá nhanh tác động của bản cập nhật đối với hệ thống nhà thông minh của mình.
-- **Kiểm soát hoàn toàn theo ý muốn**: Bạn có quyền chọn theo dõi tất cả blueprint hoặc sử dụng danh sách Whitelist/Blacklist để chỉ tập trung vào những mục thực sự quan trọng.
-- **Cập nhật tức thì, không cần khởi động lại**: Các miền liên quan (automation, script hoặc template) sẽ tự động được làm mới ngay sau khi cập nhật. Mọi thay đổi có hiệu lực tức thì mà không làm gián đoạn hoạt động của Home Assistant.
-- **Giữ link nguồn vĩnh viễn**: Tự động bảo tồn các thẻ thông tin link gốc trong tệp YAML, đảm bảo blueprint của bạn luôn giữ được kết nối để nhận các bản cập nhật trong tương lai.
-- **Bảo mật tích hợp sẵn**: Tự động kiểm tra an toàn đường dẫn (Path Safety) và URL để bảo vệ mạng nội bộ của bạn khỏi các truy cập trái phép, đồng thời đảm bảo mọi tệp tin blueprint luôn nằm đúng vị trí an toàn.
-- **Khởi động siêu tốc và tự động nhận diện**: Blueprint mới thêm vào sẽ được nhận ngay mà không cần khởi động lại. Danh sách blueprint cũng sẽ hiển thị ngay lập tức mỗi khi bạn mở Home Assistant thay vì phải chờ đợi hệ thống quét mạng chậm chạp. Giao diện cũng hỗ trợ nhiều ngôn ngữ và tự động điều chỉnh theo cài đặt của bạn.
+- **Tích hợp sâu như tính năng hệ thống**: Hoạt động mượt mà và đồng bộ như các bản cập nhật chính thức. Bạn có thể dễ dàng quản lý và cập nhật hàng loạt blueprint ngay trên dashboard.
+- **An toàn tuyệt đối, tự động sao lưu**: Mỗi bản cập nhật đều được kiểm tra kỹ về cú pháp YAML và khả năng tương thích trước khi áp dụng. Hệ thống sao lưu xoay vòng giúp bạn yên tâm khôi phục bất cứ lúc nào.
+- **Tự động hóa hoàn toàn**: Khi bật chế độ tự động cập nhật, hệ thống sẽ thay bạn thực hiện mọi thao tác từ sao lưu, tải bản mới đến gửi thông báo chi tiết khi hoàn tất.
+- **Tối ưu hiệu suất và băng thông**: Sử dụng mã băm SHA256 và ETag để chỉ tải về khi thực sự có thay đổi từ nguồn, giảm thiểu tải cho hệ thống.
+- **Hỗ trợ Blueprint đa nền tảng**: Tương thích hoàn hảo với các tệp nguồn từ GitHub, GitHub Gist và Diễn đàn cộng đồng Home Assistant.
+- **Nắm rõ tác động trước khi cập nhật**: Hiển thị chính xác số lượng Automation hoặc Script đang sử dụng blueprint đó, giúp bạn chủ động kiểm soát mọi thay đổi.
+- **Kiểm soát linh hoạt theo nhu cầu**: Cho phép theo dõi toàn bộ hoặc lọc danh sách blueprint theo Whitelist/Blacklist một cách chi tiết.
+- **Cập nhật tức thì, không cần khởi động lại**: Thao tác cập nhật tự động làm mới các thành phần liên quan, giúp thay đổi có hiệu lực ngay lập tức.
+- **Duy trì liên kết nguồn định danh**: Tự động bảo tồn thông tin `source_url` trong tệp YAML, đảm bảo khả năng theo dõi và cập nhật lâu dài.
+- **Lớp bảo mật vững chắc**: Tự động kiểm tra an toàn đường dẫn và URL, ngăn chặn các truy cập trái phép và đảm bảo tệp tin luôn nằm đúng vị trí.
+- **Phát hiện tức thì, không cần chờ đợi**: Tự động nhận diện blueprint mới mà không cần khởi động lại hệ thống. Giao diện đa ngôn ngữ, tự động thích ứng với cài đặt cá nhân của bạn.
 
 ---
 
@@ -127,10 +126,29 @@ blueprint:
 
 ---
 
+## Chất lượng Mã nguồn & Bảo mật
+
+Để duy trì tiêu chuẩn cao về độ tin cậy và an toàn, dự án sử dụng bộ công cụ phát triển và bảo mật tự động hiện đại:
+
+- **Đánh giá Pull Request tự động**: Sử dụng [CodeRabbit](https://coderabbit.ai) để phân tích chi tiết các thay đổi, giúp phát hiện sớm các lỗi logic và trường hợp biên trước khi phát hành.
+- **Tối ưu hóa mã nguồn**: [Sourcery](https://sourcery.ai) liên tục rà soát mã nguồn để đề xuất các cấu trúc Python sạch, hiệu quả và chuẩn mực hơn.
+- **Phân tích tĩnh & Bảo mật**: [CodeQL](https://codeql.github.com) thực hiện quét chuyên sâu để nhận diện các rủi ro bảo mật tiềm ẩn, đảm bảo mã nguồn tuân thủ các quy chuẩn an toàn.
+- **Quy trình phát triển chặt chẽ**:
+  - **[Ruff](https://github.com/astral-sh/ruff)**: Kiểm tra lỗi và định dạng mã cực nhanh, giúp code luôn nhất quán.
+  - **[Ty](https://github.com/astral-sh/ty)**: Kiểm tra kiểu dữ liệu chặt chẽ để tăng độ ổn định cho lõi hệ thống.
+  - **[Pytest](https://github.com/pytest-dev/pytest)**: Hệ thống kiểm thử tự động đảm bảo các tính năng luôn vận hành ổn định.
+  - **[Prettier](https://github.com/prettier/prettier)**: Duy trì định dạng nhất quán cho các tệp tài liệu và cấu hình.
+
+> [!NOTE]
+> Mọi kết quả từ các công cụ tự động đều được quản trị viên dự án trực tiếp rà soát và xác nhận kỹ lưỡng, đảm bảo sự ổn định cao nhất cho người dùng.
+
 ## Đóng góp
 
-Mọi đóng góp đều được chào đón! Nếu bạn tìm thấy lỗi hoặc có yêu cầu tính năng, vui lòng tạo issue hoặc gửi pull request.
+Sự đóng góp từ cộng đồng là yếu tố cốt lõi giúp các dự án mã nguồn mở trở nên tốt đẹp hơn. Mọi đóng góp của bạn đều được **ghi nhận và trân trọng**.
+
+- **Nếu bạn tìm thấy lỗi hoặc sự cố**, hãy giúp dự án hoàn thiện hơn bằng cách [mở một issue](https://github.com/luuquangvu/blueprints-updater/issues).
+- **Nếu bạn muốn đóng góp mã nguồn**, hãy Fork kho lưu trữ và tạo Pull Request (đừng quên kiểm tra mã nguồn theo [tiêu chuẩn chung](#chất-lượng-mã-nguồn--bảo-mật) phía trên nhé).
 
 ## Bản quyền
 
-Dự án này được cấp phép theo Giấy phép MIT.
+Dự án được phát hành dưới **Giấy phép MIT**. Xem tệp [LICENSE](LICENSE) để biết thêm thông tin chi tiết.

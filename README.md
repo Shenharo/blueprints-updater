@@ -8,7 +8,6 @@
 [![Validation](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/validate.yaml?style=flat&logo=github&label=Validation)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/validate.yaml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/github-code-scanning/codeql?style=flat&logo=github&label=CodeQL)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/github-code-scanning/codeql)
 [![Prettier](https://img.shields.io/github/actions/workflow/status/luuquangvu/blueprints-updater/prettier.yaml?style=flat&logo=prettier&label=Prettier)](https://github.com/luuquangvu/blueprints-updater/actions/workflows/prettier.yaml)
-[![CodeRabbit Reviews](https://img.shields.io/coderabbit/prs/github/luuquangvu/blueprints-updater?style=flat&logo=coderabbit&label=CodeRabbit+Reviews)](https://github.com/luuquangvu/blueprints-updater/pulls)
 
 **[ 🇺🇸 English | [🇻🇳 Tiếng Việt](README_vi.md) ]**
 
@@ -18,17 +17,17 @@
 
 ## Features
 
-- **Feels like a native feature**: Integrates seamlessly with Home Assistant, working just like official or HACS updates. You'll get standard update entities on your dashboard, making it easy to stay up-to-date with a single click or bulk update all blueprints at once.
-- **Safety first with automatic backups**: Every update is validated for YAML syntax and version compatibility before being applied. The integration also maintains rotating backups, and the update process is designed to be highly reliable. Your files won't be corrupted even in the event of a power outage or system crash.
-- **Set it and forget it**: Enable auto-updates and let the system do the work for you. It automatically backs up your current blueprint, downloads the new version, and notifies you exactly which blueprints were updated.
-- **Efficient change detection**: Instead of constant downloads, it uses SHA256 hashing and ETag headers to pull data only when an actual change is detected. This saves bandwidth and keeps your system performing at its best.
-- **Broad source support**: Whether a blueprint is hosted on GitHub, GitHub Gist, or shared on the Home Assistant Community Forum, this updater handles it accurately.
-- **Know the impact before you update**: Displays the exact number of Automations or Scripts currently using the blueprint, so you know exactly how the update will affect your setup.
-- **Complete control**: Choose to track all your blueprints or use granulated Whitelists and Blacklists to monitor only the ones you want.
-- **No-restart reloads**: Relevant domains (automation, script, or template) are automatically reloaded after an update. Your changes take effect immediately without needing to reboot Home Assistant.
-- **Preserves source links**: Automatically maintains the source URL metadata in your YAML files, ensuring your blueprints remain trackable and updatable in the long run.
-- **Built-in Security Protection**: Includes automatic Path Safety and URL Safety checks to protect your home network from unauthorized access and ensure all blueprint files stay strictly where they belong.
-- **Instant results and dynamic discovery**: New blueprints are detected automatically without a restart. Your entire blueprint list appears instantly whenever you open Home Assistant. No more waiting for slow network scans to finish before you can see your data. The interface is available in several languages and adapts to your Home Assistant settings.
+- **Seamless Native Integration**: Blends perfectly into the Home Assistant ecosystem, looking and feeling like a core feature. Manage everything directly from your dashboard with single-click or bulk updates.
+- **Safeguarded by Auto-Backups**: Every update is pre-validated for YAML syntax and version compatibility. Rotating backups provide a guaranteed safety net, letting you revert any change instantly.
+- **Set It and Forget It**: Automate your entire workflow. Enable auto-updates and let the system handle backups, downloads, and change notifications for you.
+- **Smart Change Detection**: Minimizes system overhead by using SHA256 hashing and ETag headers to pull data only when a genuine change is detected.
+- **Universal Source Compatibility**: Robustly handles blueprints from GitHub, GitHub Gist, and the Home Assistant Community Forum.
+- **Pre-Update Impact Visibility**: See exactly how many Automations or Scripts use the blueprint before you update, ensuring full control over your smart home logic.
+- **Granular Tracking Control**: Fine-tune your experience by tracking all blueprints or targeting specific ones using flexible Whitelists and Blacklists.
+- **Instant, Restart-Free Reloads**: Automatically reloads relevant automation, script, or template domains after an update for immediate results without rebooting.
+- **Preserves Link Metadata**: Automatically maintains `source_url` metadata in your YAML, ensuring your blueprints remain trackable and updatable for years.
+- **Hardened Path & URL Security**: Built-in safety checks protect your local environment from unauthorized access, ensuring all files stay strictly where they belong.
+- **Dynamic Discovery**: Automatically detects new blueprints without a restart. Fully localized with multi-language support that adapts to your preferences.
 
 ---
 
@@ -127,10 +126,29 @@ blueprint:
 
 ---
 
+## Code Quality & Security
+
+To ensure long-term reliability and stability, this project utilizes a modern stack of automated development and security tools:
+
+- **Automated Code Review**: [CodeRabbit](https://coderabbit.ai) provides deep analysis of every Pull Request, identifying potential logic flaws and edge cases before they reach your system.
+- **Code Optimization**: [Sourcery](https://sourcery.ai) suggests cleaner, more idiomatic Python patterns to maintain a high-quality codebase.
+- **Static Analysis & Security**: [CodeQL](https://codeql.github.com) performs industry-standard scans to detect security vulnerabilities and ensure compliance with best practices.
+- **Rigorous Development Workflow**:
+  - **[Ruff](https://github.com/astral-sh/ruff)**: High-performance linting and formatting for consistent Python code.
+  - **[Ty](https://github.com/astral-sh/ty)**: Strict type checking to prevent runtime errors and enhance stability.
+  - **[Pytest](https://github.com/pytest-dev/pytest)**: A comprehensive test suite ensuring every update is functional and regression-free.
+  - **[Prettier](https://github.com/prettier/prettier)**: Consistent formatting for documentation and configuration files.
+
+> [!NOTE]
+> All automated insights are manually reviewed and validated by the project maintainer to ensure every change aligns with the project's standards.
+
 ## Contributing
 
-Contributions are welcome! If you find a bug or have a feature request, please open an issue or submit a pull request.
+Contributions are what make the open-source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+- **If you find a bug**, please help us improve by [opening an issue](https://github.com/luuquangvu/blueprints-updater/issues).
+- **If you'd like to contribute**, feel free to fork the repo and create a Pull Request (please ensure your code passes the [quality checks](#code-quality--security) mentioned above).
 
 ## License
 
-This project is licensed under the MIT License.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for more information.
