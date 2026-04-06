@@ -1,6 +1,7 @@
+"""Update entities for Blueprints Updater."""
+
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any
 
@@ -32,19 +33,53 @@ async def async_setup_entry(
     """Set up the Blueprints Updater update entities.
 
     Args:
-        `hass`: HomeAssistant instance.
-        `entry`: Config entry.
-        `async_add_entities`: Callback to add entities.
+        hass: HomeAssistant instance.
+        entry: Config entry.
+        async_add_entities: Callback to add entities.
+
     """
-    coordinator: BlueprintUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: BlueprintUpdateCoordinator = hass.data[DOMAIN]["coordinators"][entry.entry_id]
 
     current_entities: dict[str, BlueprintUpdateEntity] = {}
 
     @callback
     def async_update_entities() -> None:
         """Add new blueprint entities or remove deleted ones from Home Assistant."""
-        new_entities = []
+        entity_registry = er.async_get(hass)
 
+        entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        new_id_to_path: dict[str, str] = {}
+        legacy_id_to_new_id: dict[str, str] = {}
+        for info in coordinator.data.values():
+            rel_path = info["rel_path"]
+            new_id = BlueprintUpdateCoordinator.generate_unique_id(entry.entry_id, rel_path)
+            legacy_id = BlueprintUpdateCoordinator.generate_legacy_unique_id(rel_path)
+            new_id_to_path[new_id] = rel_path
+            legacy_id_to_new_id[legacy_id] = new_id
+
+        for entity_entry in entries:
+            if entity_entry.domain != "update":
+                continue
+
+            unique_id = entity_entry.unique_id
+            if unique_id in new_id_to_path:
+                continue
+
+            if new_id := legacy_id_to_new_id.get(unique_id):
+                _LOGGER.info(
+                    "Migrating legacy unique_id for %s: %s -> %s",
+                    entity_entry.entity_id,
+                    unique_id,
+                    new_id,
+                )
+                entity_registry.async_update_entity(entity_entry.entity_id, new_unique_id=new_id)
+                continue
+
+            _LOGGER.debug("Removing orphaned registry entry for entity: %s", entity_entry.entity_id)
+            entity_registry.async_remove(entity_entry.entity_id)
+            hass.states.async_remove(entity_entry.entity_id)
+
+        new_entities = []
         for path, info in coordinator.data.items():
             if path not in current_entities:
                 entity = BlueprintUpdateEntity(coordinator, path, info)
@@ -60,8 +95,6 @@ async def async_setup_entry(
             if path not in coordinator.data:
                 removed_paths.append(path)
 
-        entity_registry: Any = er.async_get(hass)
-
         if removed_paths:
             for path in removed_paths:
                 _LOGGER.debug("Removing blueprint update entity for deleted file: %s", path)
@@ -72,20 +105,6 @@ async def async_setup_entry(
                     hass.states.async_remove(entity.entity_id)
                 else:
                     hass.async_create_task(entity.async_remove(force_remove=True))
-
-        valid_unique_ids = {
-            f"blueprint_{hashlib.sha256(info['rel_path'].encode()).hexdigest()}"
-            for info in coordinator.data.values()
-        }
-
-        entries = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
-        for entity_entry in entries:
-            if entity_entry.domain == "update" and entity_entry.unique_id not in valid_unique_ids:
-                _LOGGER.debug(
-                    "Removing orphaned registry entry for entity: %s", entity_entry.entity_id
-                )
-                entity_registry.async_remove(entity_entry.entity_id)
-                hass.states.async_remove(entity_entry.entity_id)
 
     async_update_entities()
 
@@ -111,14 +130,16 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
         """Initialize the update entity.
 
         Args:
-            `coordinator`: Update coordinator.
-            `path`: Path to the blueprint.
-            `info`: Blueprint metadata dict.
+            coordinator: Update coordinator.
+            path: Path to the blueprint.
+            info: Blueprint metadata dict.
         """
         super().__init__(coordinator)
         self._path = path
         self._attr_name = info["name"]
-        self._attr_unique_id = f"blueprint_{hashlib.sha256(info['rel_path'].encode()).hexdigest()}"
+        self._attr_unique_id = BlueprintUpdateCoordinator.generate_unique_id(
+            coordinator.config_entry.entry_id, info["rel_path"]
+        )
         self._attr_title = info["name"]
         self._attr_release_url = info.get("source_url")
         self._attr_release_summary = None
@@ -141,6 +162,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
 
         Returns:
             The first 8 characters of the local YAML hash or None.
+
         """
         if self._path in self.coordinator.data:
             return self.coordinator.data[self._path]["local_hash"][:8]
@@ -153,6 +175,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
 
         Returns:
             Release notes string or None.
+
         """
         return await self.async_generate_release_notes()
 
@@ -170,7 +193,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
             return None
 
         notes = await self.coordinator.async_translate(
-            "update_available", source_url=info["source_url"]
+            "update_available", source_url=info.get("source_url", "<unknown>")
         )
         notes += "\n\n" + await self.coordinator.async_translate("auto_update_warning")
 
@@ -185,12 +208,13 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
                 total_usage = len(automations_with_blueprint(self.coordinator.hass, bp_id))
             elif domain == "script":
                 total_usage = len(scripts_with_blueprint(self.coordinator.hass, bp_id))
-        except Exception as err:
+        except HomeAssistantError as err:
             _LOGGER.warning(
                 "Error calculating %s usage for blueprint %s: %s",
                 domain,
                 bp_id,
                 err,
+                exc_info=True,
             )
 
         if total_usage > 0:
@@ -206,6 +230,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
 
         Returns:
             Remote hash string (trimmed) or local hash if up-to-date.
+
         """
         if self._path not in self.coordinator.data:
             return None
@@ -220,6 +245,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
 
         Returns:
             A dictionary containing entity-specific attributes.
+
         """
         attrs = {}
         if self._path in self.coordinator.data:
@@ -264,23 +290,8 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
         if self.hass and self.entity_id:
             self.async_write_ha_state()
 
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        await super().async_added_to_hass()
-        await self._async_localize_strings()
-
-    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
-        """Install the update.
-
-        Args:
-            `version`: The desired version to install (unused).
-            `backup`: Whether a backup should be created (passed to coordinator).
-        """
-        if self._path not in self.coordinator.data:
-            _LOGGER.error("Blueprint path %s not found in coordinator data", self._path)
-            return
-
-        info = self.coordinator.data[self._path]
+    async def _translate_and_raise_last_error(self, info: dict[str, Any]) -> None:
+        """Translate the last error and raise HomeAssistantError."""
         if error := info.get("last_error"):
             if "|" in error:
                 key, val = error.split("|", 1)
@@ -292,7 +303,32 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
                 await self.coordinator.async_translate("install_error", error=msg)
             )
 
-        _LOGGER.info("Starting manual update for %s from %s", self._attr_name, info["source_url"])
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        await self._async_localize_strings()
+
+    async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
+        """Install the update.
+
+        Args:
+            version: The desired version to install (unused).
+            backup: Whether a backup should be created (passed to coordinator).
+            **kwargs: Additional arguments passed by the Home Assistant entity component.
+
+        """
+        if self._path not in self.coordinator.data:
+            _LOGGER.error("Blueprint path %s not found in coordinator data", self._path)
+            return
+
+        info = self.coordinator.data[self._path]
+        await self._translate_and_raise_last_error(info)
+
+        _LOGGER.info(
+            "Starting manual update for %s from %s",
+            self._attr_name,
+            info.get("source_url", "<unknown>"),
+        )
         remote_content = info.get("remote_content")
 
         if remote_content is None and info.get("updatable"):
@@ -302,7 +338,13 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
             info = self.coordinator.data.get(self._path, info)
             remote_content = info.get("remote_content")
 
-        if not remote_content:
+        await self._translate_and_raise_last_error(info)
+
+        if info.get("updatable") is False and remote_content is None:
+            _LOGGER.debug("Blueprint %s already updated during forced fetch", self._path)
+            return
+
+        if remote_content is None:
             _LOGGER.error("Failed to install blueprint: content is missing for %s", self._path)
             raise HomeAssistantError(
                 await self.coordinator.async_translate("install_error", error="content_missing")

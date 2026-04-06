@@ -1,3 +1,5 @@
+"""Tests for Blueprints Updater update entities."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -5,6 +7,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 import custom_components.blueprints_updater.update as update_module
 from custom_components.blueprints_updater.const import DOMAIN
+from custom_components.blueprints_updater.coordinator import BlueprintUpdateCoordinator
 from custom_components.blueprints_updater.update import BlueprintUpdateEntity, async_setup_entry
 
 
@@ -28,7 +31,7 @@ async def test_update_entities_lifecycle(hass):
     }
     coordinator.async_add_listener = MagicMock()
 
-    hass.data = {DOMAIN: {"test_entry": coordinator}}
+    hass.data = {DOMAIN: {"coordinators": {"test_entry": coordinator}}}
     hass.async_create_task = MagicMock()
     hass.states = MagicMock()
 
@@ -261,7 +264,6 @@ async def test_entity_async_install_backup(coordinator):
 @pytest.mark.asyncio
 async def test_entity_release_summary_with_usage(coordinator):
     """Test release summary includes usage warning."""
-
     info_auto = {
         "name": "Test Auto",
         "rel_path": "automation/test.yaml",
@@ -314,6 +316,51 @@ async def test_entity_release_summary_with_usage(coordinator):
 
 
 @pytest.mark.asyncio
+async def test_entity_release_notes_usage_error_handled(coordinator):
+    """Test that HomeAssistantError in usage calculation is handled."""
+    path = "/config/blueprints/automation/test.yaml"
+    info = {
+        "name": "Test",
+        "rel_path": "automation/test.yaml",
+        "updatable": True,
+    }
+    coordinator.data[path] = info
+    entity = BlueprintUpdateEntity(coordinator, path, info)
+    entity.hass = coordinator.hass
+
+    with (
+        patch.object(update_module, "automations_with_blueprint", side_effect=HomeAssistantError),
+        patch("custom_components.blueprints_updater.update._LOGGER") as mock_logger,
+    ):
+        notes = await entity.async_generate_release_notes()
+        assert notes is not None
+        assert "affect" not in notes
+        mock_logger.warning.assert_called()
+        _, kwargs = mock_logger.warning.call_args
+        assert kwargs.get("exc_info") is True
+
+
+@pytest.mark.asyncio
+async def test_entity_release_notes_usage_error_unhandled(coordinator):
+    """Test that TypeError in usage calculation is NOT handled."""
+    path = "/config/blueprints/automation/test.yaml"
+    info = {
+        "name": "Test",
+        "rel_path": "automation/test.yaml",
+        "updatable": True,
+    }
+    coordinator.data[path] = info
+    entity = BlueprintUpdateEntity(coordinator, path, info)
+    entity.hass = coordinator.hass
+
+    with (
+        patch.object(update_module, "automations_with_blueprint", side_effect=TypeError),
+        pytest.raises(TypeError),
+    ):
+        await entity.async_generate_release_notes()
+
+
+@pytest.mark.asyncio
 async def test_entity_skip_version(coordinator):
     """Test that skipping a version works natively."""
     entity = BlueprintUpdateEntity(
@@ -349,3 +396,58 @@ async def test_entity_skip_version(coordinator):
 
         await entity.async_clear_skipped()
         assert entity.state == "on"
+
+
+@pytest.mark.asyncio
+async def test_async_update_entities_migration(hass):
+    """Validate legacy rel_path IDs are migrated and unknown entities removed."""
+    entry = MagicMock()
+    entry.entry_id = "test_entry"
+
+    coordinator = MagicMock(spec=BlueprintUpdateCoordinator)
+    coordinator.config_entry = entry
+    coordinator.data = {
+        "/config/blueprints/kept.yaml": {
+            "rel_path": "kept.yaml",
+            "name": "Kept",
+            "local_hash": "hash",
+        },
+    }
+    coordinator.async_add_listener = MagicMock()
+
+    hass.data = {DOMAIN: {"coordinators": {entry.entry_id: coordinator}}}
+    hass.states = MagicMock()
+
+    mock_entity_registry = MagicMock()
+
+    legacy_id = BlueprintUpdateCoordinator.generate_legacy_unique_id("kept.yaml")
+    new_id = BlueprintUpdateCoordinator.generate_unique_id(entry.entry_id, "kept.yaml")
+
+    legacy_entity = MagicMock()
+    legacy_entity.domain = "update"
+    legacy_entity.unique_id = legacy_id
+    legacy_entity.entity_id = "update.kept"
+
+    orphan_entity = MagicMock()
+    orphan_entity.domain = "update"
+    orphan_entity.unique_id = "test_entry_orphan.yaml"
+    orphan_entity.entity_id = "update.orphan"
+
+    with (
+        patch(
+            "custom_components.blueprints_updater.update.er.async_get",
+            return_value=mock_entity_registry,
+        ),
+        patch(
+            "custom_components.blueprints_updater.update.er.async_entries_for_config_entry",
+            return_value=[legacy_entity, orphan_entity],
+        ),
+    ):
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, entry, async_add_entities)
+
+        mock_entity_registry.async_update_entity.assert_called_once_with(
+            "update.kept", new_unique_id=new_id
+        )
+        mock_entity_registry.async_remove.assert_called_once_with("update.orphan")
+        hass.states.async_remove.assert_called_once_with("update.orphan")

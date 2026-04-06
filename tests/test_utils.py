@@ -1,10 +1,16 @@
 """Tests for Blueprints Updater utilities."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.blueprints_updater.utils import retry_async
+from custom_components.blueprints_updater.utils import (
+    get_config_int,
+    get_max_backups,
+    get_update_interval,
+    retry_async,
+)
 
 
 @pytest.mark.asyncio
@@ -17,7 +23,7 @@ async def test_retry_async_success():
         mock()
         return "success"
 
-    @retry_async(max_retries=3)
+    @retry_async(3, (Exception,))
     async def decorated_func():
         return await mock_func()
 
@@ -31,7 +37,7 @@ async def test_retry_async_retry_success():
     """Test retry_async decorator when it succeeds after some retries."""
     call_count = 0
 
-    @retry_async(max_retries=3, base_delay=0.01)
+    @retry_async(3, (ValueError,), base_delay=0.01)
     async def decorated_func():
         nonlocal call_count
         call_count += 1
@@ -49,7 +55,7 @@ async def test_retry_async_failure():
     """Test retry_async decorator when it fails after all retries."""
     call_count = 0
 
-    @retry_async(max_retries=2, base_delay=0.01)
+    @retry_async(2, (ValueError,), base_delay=0.01)
     async def decorated_func():
         nonlocal call_count
         call_count += 1
@@ -65,7 +71,7 @@ async def test_retry_async_specific_exceptions():
     """Test retry_async decorator with specific exceptions."""
     call_count = 0
 
-    @retry_async(max_retries=3, base_delay=0.01, exceptions=(ValueError,))
+    @retry_async(3, (ValueError,), base_delay=0.01)
     async def decorated_func():
         nonlocal call_count
         call_count += 1
@@ -76,3 +82,116 @@ async def test_retry_async_specific_exceptions():
     with pytest.raises(TypeError, match="Not retryable"):
         await decorated_func()
     assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_async_cancelled_error():
+    """Test that retry_async does not catch CancelledError."""
+    call_count = 0
+
+    @retry_async(3, (Exception,), base_delay=0.01)
+    async def decorated_func():
+        nonlocal call_count
+        call_count += 1
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await decorated_func()
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_async_zero_retries():
+    """Test retry_async with max_retries=0 performs one attempt and no retries."""
+    call_count = 0
+
+    @retry_async(0, (ValueError,), base_delay=0.01)
+    async def decorated_func():
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("Immediately fail")
+
+    with pytest.raises(ValueError, match="Immediately fail"):
+        await decorated_func()
+    assert call_count == 1
+
+
+def test_retry_async_invalid_args():
+    """Test retry_async decorator with invalid arguments."""
+    with pytest.raises(ValueError, match="max_retries must be greater than or equal to 0"):
+
+        @retry_async(-1, (Exception,))
+        async def mock_func_1():
+            pass
+
+    with pytest.raises(ValueError, match="base_delay must be greater than or equal to 0"):
+
+        @retry_async(3, (Exception,), base_delay=-1.0)
+        async def mock_func_2():
+            pass
+
+    with pytest.raises(ValueError, match="exceptions tuple must not be empty"):
+
+        @retry_async(3, ())
+        async def mock_func_3():
+            pass
+
+    with pytest.raises(TypeError, match="exceptions must be a tuple of Exception subclasses"):
+
+        @retry_async(3, [Exception])  # type: ignore
+        async def mock_func_list():
+            pass
+
+    with pytest.raises(TypeError, match="All items in exceptions must be subclasses of Exception"):
+
+        @retry_async(3, (str,))  # type: ignore
+        async def mock_func_4():
+            pass
+
+    with pytest.raises(TypeError, match="All items in exceptions must be subclasses of Exception"):
+
+        @retry_async(3, (Exception, str))  # type: ignore
+        async def mock_func_5():
+            pass
+
+
+def test_get_config_int():
+    """Test get_config_int helper."""
+    config = MagicMock()
+    config.options = {"key": " 10 "}
+    assert get_config_int(config, "key", 5) == 10
+    assert get_config_int(config, "missing", 5) == 5
+    assert get_config_int(None, "key", 5) == 5
+    assert get_config_int(config, "key", 5, min_val=20) == 20
+    assert get_config_int(config, "key", 5, max_val=5) == 5
+
+    config.options = {"key": "invalid"}
+    assert get_config_int(config, "key", 5) == 5
+
+
+def test_get_update_interval():
+    """Test get_update_interval helper."""
+    config = MagicMock()
+
+    config.options = {"update_interval": 48}
+    assert get_update_interval(config) == 48
+
+    config.options = {"update_interval": 0}
+    assert get_update_interval(config) == 1
+
+    config.options = {"update_interval": 1000}
+    assert get_update_interval(config) == 720
+
+
+def test_get_max_backups():
+    """Test get_max_backups helper."""
+    config = MagicMock()
+
+    config.options = {"max_backups": 5}
+    assert get_max_backups(config) == 5
+
+    config.options = {"max_backups": 0}
+    assert get_max_backups(config) == 1
+
+    config.options = {"max_backups": 20}
+    assert get_max_backups(config) == 10

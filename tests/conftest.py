@@ -1,3 +1,5 @@
+"""Fixtures for Blueprints Updater tests."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +30,9 @@ def hass():
     hass_mock.config.path.return_value = "/config/blueprints"
     hass_mock.services = MagicMock()
     hass_mock.services.async_call = AsyncMock()
+
+    hass_mock.bus = MagicMock()
+    hass_mock.bus.async_listen = MagicMock()
 
     async def async_add_executor_job(target, *args, **kwargs):
         return target(*args, **kwargs)

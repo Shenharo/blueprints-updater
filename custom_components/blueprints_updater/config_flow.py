@@ -1,3 +1,5 @@
+"""Config flow for Blueprints Updater."""
+
 from __future__ import annotations
 
 import logging
@@ -25,14 +27,17 @@ from .const import (
     CONF_MAX_BACKUPS,
     CONF_SELECTED_BLUEPRINTS,
     CONF_UPDATE_INTERVAL,
-    DEFAULT_MAX_BACKUPS,
-    DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
     FILTER_MODE_ALL,
     FILTER_MODE_BLACKLIST,
     FILTER_MODE_WHITELIST,
+    MAX_BACKUPS,
+    MAX_UPDATE_INTERVAL_HOURS,
+    MIN_BACKUPS,
+    MIN_UPDATE_INTERVAL,
 )
 from .coordinator import BlueprintUpdateCoordinator
+from .utils import get_max_backups, get_update_interval
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,10 +46,11 @@ async def _async_get_blueprint_options(hass: HomeAssistant) -> list[dict[str, An
     """Scan blueprints and return options for the selector.
 
     Args:
-        `hass`: HomeAssistant instance.
+        hass: HomeAssistant instance.
 
     Returns:
         List of blueprint options with value and label.
+
     """
     blueprints = await hass.async_add_executor_job(
         BlueprintUpdateCoordinator.scan_blueprints, hass, FILTER_MODE_ALL, []
@@ -69,11 +75,12 @@ def _get_config_schema(
     """Return the configuration schema for the flow.
 
     Args:
-        `defaults`: Current or default configuration values.
-        `blueprint_options`: Available blueprints to select from.
+        defaults: Current or default configuration values.
+        blueprint_options: Available blueprints to select from.
 
     Returns:
         A voluptuous Schema object.
+
     """
     return vol.Schema(
         {
@@ -83,21 +90,22 @@ def _get_config_schema(
             ): cv.boolean,
             vol.Required(
                 CONF_UPDATE_INTERVAL,
-                default=defaults.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
+                default=get_update_interval(defaults),
             ): NumberSelector(
                 NumberSelectorConfig(
-                    min=1,
+                    min=MIN_UPDATE_INTERVAL,
+                    max=MAX_UPDATE_INTERVAL_HOURS,
                     mode=NumberSelectorMode.BOX,
                     unit_of_measurement=UnitOfTime.HOURS,
                 )
             ),
             vol.Required(
                 CONF_MAX_BACKUPS,
-                default=defaults.get(CONF_MAX_BACKUPS, DEFAULT_MAX_BACKUPS),
+                default=get_max_backups(defaults),
             ): NumberSelector(
                 NumberSelectorConfig(
-                    min=1,
-                    max=10,
+                    min=MIN_BACKUPS,
+                    max=MAX_BACKUPS,
                     mode=NumberSelectorMode.BOX,
                 )
             ),
@@ -109,16 +117,16 @@ def _get_config_schema(
                     options=cast(
                         Any,
                         [
-                            {"value": FILTER_MODE_ALL, "label": "Update All"},
-                            {"value": FILTER_MODE_WHITELIST, "label": "Whitelist"},
-                            {"value": FILTER_MODE_BLACKLIST, "label": "Blacklist"},
+                            {"value": FILTER_MODE_ALL, "label": FILTER_MODE_ALL},
+                            {"value": FILTER_MODE_WHITELIST, "label": FILTER_MODE_WHITELIST},
+                            {"value": FILTER_MODE_BLACKLIST, "label": FILTER_MODE_BLACKLIST},
                         ],
                     ),
                     mode=SelectSelectorMode.DROPDOWN,
                     translation_key="filter_mode",
                 )
             ),
-            vol.Required(
+            vol.Optional(
                 CONF_SELECTED_BLUEPRINTS,
                 default=defaults.get(CONF_SELECTED_BLUEPRINTS, []),
             ): SelectSelector(
@@ -139,7 +147,7 @@ class BlueprintsUpdaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
-        _LOGGER.debug("User step in config flow: %s", user_input)
+        _LOGGER.debug("User step in config flow (submitted: %s)", user_input is not None)
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 
@@ -171,7 +179,7 @@ class BlueprintsUpdaterOptionsFlowHandler(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Manage the options."""
-        _LOGGER.debug("Options flow step init: %s", user_input)
+        _LOGGER.debug("Options flow step init (submitted: %s)", user_input is not None)
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 

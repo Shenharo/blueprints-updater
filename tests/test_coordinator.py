@@ -1,14 +1,19 @@
+"""Tests for Blueprints Updater coordinator."""
+
 import asyncio
 import contextlib
+import hashlib
 import os
 import socket
 from datetime import timedelta
 from types import MappingProxyType
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import yaml as yaml_util
 
 from custom_components.blueprints_updater.const import (
     FILTER_MODE_ALL,
@@ -111,8 +116,7 @@ def test_ensure_source_url(coordinator):
     """Test ensuring source_url is present."""
     source_url = "https://github.com/user/repo/blob/main/test.yaml"
 
-    content = "blueprint:\n  name: Test"
-    new_content = coordinator._ensure_source_url(content, source_url)
+    new_content = coordinator._ensure_source_url("blueprint:\n  name: Test", source_url)
     assert f"source_url: {source_url}" in new_content
 
     content_with_url = f"blueprint:\n  name: Test\n  source_url: {source_url}"
@@ -146,6 +150,40 @@ def test_ensure_source_url(coordinator):
     assert f"  source_url: {source_url}" in result_nested
     assert result_nested.count("source_url") == 2
 
+    content_with_comment = "blueprint: # comment\n  name: Test"
+    result_comment = coordinator._ensure_source_url(content_with_comment, source_url)
+    assert f"source_url: {source_url}" in result_comment
+    assert "blueprint: # comment" in result_comment
+
+    content_flow = "blueprint: { name: Test }"
+    result_flow = coordinator._ensure_source_url(content_flow, source_url)
+    assert f"source_url: {source_url}" in result_flow
+
+    content_multi = (
+        "# Some info: blueprint:\n"
+        "blueprint:\n"
+        "  name: Test\n"
+        "description: This is another blueprint: key in string"
+    )
+    result_multi = coordinator._ensure_source_url(content_multi, source_url)
+    assert result_multi.count(f"source_url: {source_url}") == 1
+    assert "source_url:" in result_multi.split("description:")[0]
+
+    content_none = "not_a_blueprint: true"
+    assert coordinator._ensure_source_url(content_none, source_url) == content_none
+
+
+def test_ensure_source_url_indented_key(coordinator):
+    """Test that indented blueprint keys do NOT trigger injection."""
+    source_url = "https://url.com/blueprint.yaml"
+    content = """
+not_blueprint:
+  something: else
+  blueprint:
+    nested: true
+"""
+    assert coordinator._ensure_source_url(content, source_url) == content
+
 
 def test_scan_blueprints(hass, coordinator):
     """Test scanning blueprints directory."""
@@ -159,13 +197,12 @@ def test_scan_blueprints(hass, coordinator):
     def open_side_effect(path, *_args, **_kwargs):
         path_str = str(path)
         basename = os.path.basename(path_str)
-        content = ""
-        if basename == "valid.yaml":
-            content = valid_content
-        elif basename == "invalid.yaml":
-            content = invalid_content
-        elif basename == "no_url.yaml":
-            content = no_url_content
+        contents_map = {
+            "valid.yaml": valid_content,
+            "invalid.yaml": invalid_content,
+            "no_url.yaml": no_url_content,
+        }
+        content = contents_map.get(basename, "")
 
         m = MagicMock()
         m.read.return_value = content
@@ -625,7 +662,11 @@ async def test_async_update_blueprint_in_place_errors(coordinator):
     await coordinator._async_update_blueprint_in_place(
         mock_session, path, info, results_to_notify, updated_domains
     )
-    assert coordinator.data[path]["last_error"] == "empty_content"
+    assert coordinator.data[path]["last_error"] == "empty_content|"
+    assert coordinator.data[path]["remote_hash"] is None
+    assert coordinator.data[path]["remote_content"] is None
+    assert coordinator.data[path]["updatable"] is False
+    assert coordinator.data[path]["invalid_remote_hash"] is None
 
     mock_resp_invalid = MagicMock(spec=httpx.Response)
     mock_resp_invalid.status_code = 200
@@ -747,6 +788,78 @@ async def test_async_update_data_auto_update(coordinator):
 
 
 @pytest.mark.asyncio
+async def test_async_update_blueprint_unsafe_url_invalidates_cache(coordinator):
+    """Test that an unsafe source URL invalidates the cached remote metadata."""
+    path = "/config/blueprints/test.yaml"
+    coordinator.data = {
+        path: {
+            "name": "Test",
+            "source_url": "http://malicious.com",
+            "remote_hash": "old_hash",
+            "remote_content": "old_content",
+            "etag": "old_etag",
+            "updatable": True,
+            "last_error": None,
+        }
+    }
+
+    with (
+        patch.object(coordinator, "_is_safe_url", return_value=False),
+        patch(
+            "custom_components.blueprints_updater.coordinator.get_async_client",
+            return_value=MagicMock(),
+        ),
+    ):
+        await coordinator.async_fetch_blueprint(path)
+
+    assert coordinator.data[path]["remote_hash"] is None
+    assert coordinator.data[path]["remote_content"] is None
+    assert coordinator.data[path]["etag"] is None
+    assert coordinator.data[path]["updatable"] is False
+    assert "unsafe_url|" in str(coordinator.data[path]["last_error"])
+
+
+@pytest.mark.asyncio
+async def test_async_background_refresh_cancellation_stops_workers(coordinator):
+    """Test that cancelling the background refresh task stops workers promptly."""
+    num_blueprints = 100
+    blueprints = {
+        f"/bp{i}.yaml": {
+            "name": f"BP{i}",
+            "rel_path": f"bp{i}.yaml",
+            "source_url": f"https://url/bp{i}",
+            "domain": "automation",
+            "local_hash": "h",
+        }
+        for i in range(num_blueprints)
+    }
+
+    processed_count = 0
+
+    async def slow_update(*_args, **_kwargs):
+        """Slow update to ensure we can cancel while processing."""
+        nonlocal processed_count
+        processed_count += 1
+        await asyncio.sleep(0.2)
+
+    with (
+        patch.object(coordinator, "_async_update_blueprint_in_place", side_effect=slow_update),
+        patch(
+            "custom_components.blueprints_updater.coordinator.get_async_client",
+            return_value=MagicMock(),
+        ),
+    ):
+        task = asyncio.create_task(coordinator._async_background_refresh(blueprints))
+
+        await asyncio.sleep(0.3)
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        assert processed_count < num_blueprints
+
+
+@pytest.mark.asyncio
 async def test_async_update_data_auto_update_multiple_sorted(coordinator):
     """Test _async_update_data sorts multiple auto-updated blueprints."""
     coordinator.config_entry.options = MappingProxyType({"auto_update": True})
@@ -838,15 +951,19 @@ async def test_async_install_blueprint_backup(hass, coordinator):
 
     with (
         patch("builtins.open", MagicMock()),
+        patch(
+            "custom_components.blueprints_updater.coordinator.os.path.realpath",
+            side_effect=os.path.normpath,
+        ),
         patch("custom_components.blueprints_updater.coordinator.os.replace") as mock_replace,
-        patch("custom_components.blueprints_updater.coordinator.os.path.exists", return_value=True),
+        patch("custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=True),
         patch("custom_components.blueprints_updater.coordinator.shutil.copy2") as mock_copy,
         patch("custom_components.blueprints_updater.coordinator.os.remove"),
     ):
         await coordinator.async_install_blueprint(path, remote_content, backup=True)
 
-    mock_copy.assert_called_once_with(path, f"{path}.bak.1")
-    mock_replace.assert_any_call(f"{path}.tmp", path)
+    mock_copy.assert_called_once_with(os.path.normpath(path), os.path.normpath(f"{path}.bak.1"))
+    mock_replace.assert_any_call(os.path.normpath(f"{path}.tmp"), os.path.normpath(path))
 
 
 @pytest.mark.asyncio
@@ -860,12 +977,22 @@ async def test_async_restore_blueprint_success(hass, coordinator):
     coordinator.async_request_refresh = AsyncMock()
 
     with (
-        patch("custom_components.blueprints_updater.coordinator.os.path.exists", return_value=True),
+        patch("builtins.open", MagicMock()),
+        patch(
+            "custom_components.blueprints_updater.coordinator.os.path.realpath",
+            side_effect=os.path.normpath,
+        ),
+        patch("custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=True),
         patch("custom_components.blueprints_updater.coordinator.os.replace") as mock_replace,
+        patch("custom_components.blueprints_updater.coordinator.os.remove"),
+        patch("custom_components.blueprints_updater.coordinator.os.rename"),
+        patch("custom_components.blueprints_updater.coordinator.shutil.copy2"),
     ):
         result = await coordinator.async_restore_blueprint(path)
 
-    mock_replace.assert_called_once_with(f"{path}.bak.1", path)
+    mock_replace.assert_any_call(
+        os.path.normpath(f"{path}.bak.1"), os.path.normpath(f"{path}.bak.2")
+    )
     assert result["success"] is True
     assert result["translation_key"] == "success"
     hass.services.async_call.assert_any_call("automation", "reload")
@@ -877,8 +1004,10 @@ async def test_async_restore_blueprint_missing(hass, coordinator):
     path = "/config/blueprints/test.yaml"
     coordinator.data = {path: {"updatable": False}}
 
-    with patch(
-        "custom_components.blueprints_updater.coordinator.os.path.exists", return_value=False
+    with (
+        patch(
+            "custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=False
+        ),
     ):
         result = await coordinator.async_restore_blueprint(path)
 
@@ -893,7 +1022,11 @@ async def test_async_restore_blueprint_error(hass, coordinator):
     coordinator.data = {path: {"updatable": False}}
 
     with (
-        patch("custom_components.blueprints_updater.coordinator.os.path.exists", return_value=True),
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=True),
+        patch("custom_components.blueprints_updater.coordinator.os.remove"),
+        patch("custom_components.blueprints_updater.coordinator.os.rename"),
+        patch("custom_components.blueprints_updater.coordinator.shutil.copy2"),
         patch(
             "custom_components.blueprints_updater.coordinator.os.replace",
             side_effect=Exception("Disk error"),
@@ -1015,7 +1148,7 @@ async def test_restore_versioned(coordinator, tmp_path):
     result = await coordinator.async_restore_blueprint(str(bp_file), version=2)
     assert result["success"] is True
     assert bp_file.read_text() == "backup_v2"
-    assert not (tmp_path / "test.yaml.bak.2").exists()
+    assert (tmp_path / "test.yaml.bak.2").read_text() == "backup_v1"
 
 
 @pytest.mark.asyncio
@@ -1113,13 +1246,13 @@ async def test_background_refresh_shutdown(hass, coordinator):
 async def test_async_fetch_content_retry_limit(coordinator):
     """Test that _async_fetch_content retries exactly MAX_RETRIES times."""
     mock_session = MagicMock(spec=httpx.AsyncClient)
-    mock_session.get = AsyncMock(side_effect=Exception("Fetch failed"))
+    mock_session.get = AsyncMock(side_effect=httpx.RequestError("Fetch failed"))
 
     with (
         patch(
             "custom_components.blueprints_updater.coordinator.asyncio.sleep", new_callable=AsyncMock
         ),
-        pytest.raises(Exception, match="Fetch failed"),
+        pytest.raises(httpx.RequestError, match="Fetch failed"),
     ):
         await coordinator._async_fetch_content(mock_session, "https://url")
 
@@ -1138,11 +1271,10 @@ async def test_async_fetch_content_pacing_logic(coordinator):
 
     mock_session.get = AsyncMock(return_value=mock_response)
 
-    time_points = [100.0, 100.1]
     with (
         patch(
             "custom_components.blueprints_updater.coordinator.time.monotonic",
-            side_effect=time_points,
+            side_effect=[100.0, 100.1, 100.2, 100.3, 100.4, 100.5, 100.6, 100.7] + [100.8] * 100,
         ),
         patch(
             "custom_components.blueprints_updater.coordinator.random.uniform",
@@ -1158,8 +1290,8 @@ async def test_async_fetch_content_pacing_logic(coordinator):
 
         mock_random.assert_called_with(MIN_SEND_INTERVAL, MAX_SEND_INTERVAL)
 
-        expected_delay = (100.0 + MIN_SEND_INTERVAL) - 100.1
-        mock_sleep.assert_called_with(expected_delay)
+        expected_delay = (100.1 + MIN_SEND_INTERVAL) - 100.2
+        mock_sleep.assert_called_with(pytest.approx(expected_delay))
 
 
 @pytest.mark.asyncio
@@ -1175,11 +1307,10 @@ async def test_async_fetch_content_pacing_logic_max(coordinator):
     mock_session.get = AsyncMock(return_value=mock_response)
     coordinator._last_request_time = 0.0
 
-    time_points = [200.0, 200.1]
     with (
         patch(
             "custom_components.blueprints_updater.coordinator.time.monotonic",
-            side_effect=time_points,
+            side_effect=[200.0, 200.1, 200.2, 200.3, 200.4, 200.5, 200.6, 200.7] + [200.8] * 100,
         ),
         patch(
             "custom_components.blueprints_updater.coordinator.random.uniform",
@@ -1195,8 +1326,8 @@ async def test_async_fetch_content_pacing_logic_max(coordinator):
 
         mock_random.assert_called_with(MIN_SEND_INTERVAL, MAX_SEND_INTERVAL)
 
-        expected_delay = (200.0 + MAX_SEND_INTERVAL) - 200.1
-        mock_sleep.assert_called_with(expected_delay)
+        expected_delay = (200.1 + MAX_SEND_INTERVAL) - 200.2
+        mock_sleep.assert_called_with(pytest.approx(expected_delay))
 
 
 @pytest.mark.asyncio
@@ -1287,11 +1418,15 @@ def test_scan_blueprints_domain_extraction(hass, coordinator):
 def test_is_safe_path(coordinator):
     """Test _is_safe_path logic."""
     coordinator._is_safe_path = BlueprintUpdateCoordinator._is_safe_path.__get__(coordinator)
-    assert coordinator._is_safe_path("/config/blueprints/test.yaml")
-    assert coordinator._is_safe_path("/config/blueprints/automation/test.yaml")
-    assert not coordinator._is_safe_path("/config/secrets.yaml")
-    assert not coordinator._is_safe_path("/etc/passwd")
-    assert not coordinator._is_safe_path("/config/blueprints/../secrets.yaml")
+    with patch(
+        "custom_components.blueprints_updater.coordinator.os.path.realpath",
+        side_effect=os.path.normpath,
+    ):
+        assert coordinator._is_safe_path("/config/blueprints/test.yaml")
+        assert coordinator._is_safe_path("/config/blueprints/automation/test.yaml")
+        assert not coordinator._is_safe_path("/config/secrets.yaml")
+        assert not coordinator._is_safe_path("/etc/passwd")
+        assert not coordinator._is_safe_path("/config/blueprints/../secrets.yaml")
 
 
 @pytest.mark.asyncio
@@ -1335,10 +1470,21 @@ async def test_is_safe_url_dns_resolution(coordinator):
 async def test_async_install_blueprint_unsafe_path(coordinator):
     """Test that installing to an unsafe path is blocked."""
     coordinator._is_safe_path = BlueprintUpdateCoordinator._is_safe_path.__get__(coordinator)
-    with patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger:
-        await coordinator.async_install_blueprint("/config/secrets.yaml", "content")
+    with (
+        patch(
+            "custom_components.blueprints_updater.coordinator.os.path.realpath",
+            side_effect=os.path.normpath,
+        ),
+        patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger,
+    ):
+        with pytest.raises(
+            HomeAssistantError,
+            match=r"Security violation: Attempted to install to an unsafe location",
+        ):
+            await coordinator.async_install_blueprint("/config/secrets.yaml", "content")
         mock_logger.error.assert_called_with(
-            "Security violation: Attempted to install to unsafe path: %s", "/config/secrets.yaml"
+            "Security violation: Attempted to install to unsafe path: %s",
+            os.path.normpath("/config/secrets.yaml"),
         )
 
 
@@ -1412,3 +1558,192 @@ async def test_async_fetch_blueprint_regression_key_error_hash(coordinator):
     assert coordinator.data[path]["remote_hash"] == "new_hash"
     assert coordinator.data[path]["etag"] == "new_etag"
     assert coordinator.data[path]["updatable"] is True
+
+
+@pytest.mark.asyncio
+async def test_metadata_pruning(coordinator):
+    """Test that stale metadata is pruned during update."""
+    path_valid = "/config/blueprints/valid.yaml"
+    path_stale = "/config/blueprints/stale.yaml"
+
+    coordinator._persisted_etags = {path_valid: "etag1", path_stale: "etag2"}
+    coordinator._persisted_hashes = {path_valid: "hash1", path_stale: "hash2"}
+
+    blueprints = {
+        path_valid: {
+            "name": "Valid",
+            "rel_path": "valid.yaml",
+            "domain": "automation",
+            "source_url": "https://url",
+            "local_hash": "hash1",
+        }
+    }
+
+    with (
+        patch.object(coordinator, "scan_blueprints", return_value=blueprints),
+        patch.object(coordinator, "_start_background_refresh"),
+    ):
+        await coordinator._async_update_data()
+
+    assert path_valid in coordinator._persisted_etags
+    assert path_stale not in coordinator._persisted_etags
+    assert path_valid in coordinator._persisted_hashes
+    assert path_stale not in coordinator._persisted_hashes
+
+
+@pytest.mark.asyncio
+async def test_async_save_metadata_empty_data(coordinator):
+    """Test that saving metadata with empty data clears the store."""
+    coordinator.data = {}
+    coordinator.setup_complete = True
+    coordinator._persisted_etags = {"stale": "etag"}
+    coordinator._persisted_hashes = {"stale": "hash"}
+
+    with patch.object(coordinator._store, "async_save", new_callable=AsyncMock) as mock_save:
+        await coordinator._async_save_metadata()
+
+    mock_save.assert_called_once_with({"etags": {}, "remote_hashes": {}})
+    assert not coordinator._persisted_etags
+    assert not coordinator._persisted_hashes
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_content_pacing_synchronization(coordinator):
+    """Test that multiple concurrent requests result in strictly increasing _last_request_time."""
+    coordinator._last_request_time = 100.0
+
+    async_client = httpx.AsyncClient()
+    try:
+        with (
+            patch(
+                "custom_components.blueprints_updater.coordinator.time.monotonic",
+                side_effect=[105.0, 105.1, 105.2] + [105.3] * 100,
+            ),
+            patch(
+                "custom_components.blueprints_updater.coordinator.random.uniform",
+                return_value=1.0,
+            ),
+            patch(
+                "custom_components.blueprints_updater.coordinator.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as mock_sleep,
+            patch.object(async_client, "get", new_callable=AsyncMock) as mock_get,
+        ):
+            mock_get.return_value = MagicMock(spec=httpx.Response)
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.headers = {"ETag": "new"}
+            mock_get.return_value.text = "blueprint:\n  name: Test"
+            mock_get.return_value.raise_for_status = MagicMock()
+
+            tasks = [
+                coordinator._async_fetch_content(async_client, "https://url1/bp.yaml"),
+                coordinator._async_fetch_content(async_client, "https://url2/bp.yaml"),
+                coordinator._async_fetch_content(async_client, "https://url3/bp.yaml"),
+            ]
+
+            await asyncio.gather(*tasks)
+
+            assert coordinator._last_request_time >= 107.0
+
+            sleep_args = [round(call.args[0], 1) for call in mock_sleep.call_args_list]
+            assert len(sleep_args) == 2
+            assert all(d > 0 for d in sleep_args)
+    finally:
+        await async_client.aclose()
+
+
+def test_ensure_source_url_structured_modification():
+    """Test that _ensure_source_url prefers structured YAML modification."""
+    content = "blueprint:\n  name: Test\n"
+    source_url = "https://example.com/bp.yaml"
+
+    result = BlueprintUpdateCoordinator._ensure_source_url(content, source_url)
+    assert "source_url: https://example.com/bp.yaml" in result
+
+    parsed = yaml_util.parse_yaml(result)
+    assert isinstance(parsed, dict)
+    assert isinstance(parsed["blueprint"], dict)
+    assert parsed["blueprint"]["source_url"] == source_url
+    assert parsed["blueprint"]["name"] == "Test"
+
+
+@pytest.mark.asyncio
+async def test_async_install_blueprint_state_synchronization(coordinator):
+    """Test that self.data is updated immediately after async_install_blueprint."""
+    path = "/config/blueprints/automation/test.yaml"
+    remote_content = "blueprint:\n  name: New Version\n  source_url: https://url\n"
+    new_hash = hashlib.sha256(remote_content.encode()).hexdigest()
+
+    coordinator.data = {
+        path: {
+            "name": "Old",
+            "rel_path": "automation/test.yaml",
+            "local_hash": "old_hash",
+            "remote_hash": new_hash,
+            "updatable": True,
+        }
+    }
+
+    with (
+        patch("custom_components.blueprints_updater.coordinator.os.replace"),
+        patch("builtins.open", mock_open()),
+        patch.object(coordinator, "async_reload_services", new_callable=AsyncMock),
+    ):
+        await coordinator.async_install_blueprint(
+            path, remote_content, reload_services=False, backup=False
+        )
+
+    assert coordinator.data[path]["local_hash"] == new_hash
+    assert coordinator.data[path]["updatable"] is False
+    assert coordinator.data[path]["last_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_async_setup_sanitization(hass, coordinator):
+    """Test that async_setup sanitizes corrupted or invalid storage data."""
+    mock_store = MagicMock()
+    coordinator._store = mock_store
+
+    mock_store.async_load = AsyncMock(
+        return_value={
+            "etags": "not_a_dict",
+            "remote_hashes": ["not", "a", "dict"],
+        }
+    )
+
+    with patch("custom_components.blueprints_updater.coordinator._LOGGER.warning") as mock_warn:
+        await coordinator.async_setup()
+        assert coordinator._persisted_etags == {}
+        assert coordinator._persisted_hashes == {}
+        assert coordinator.setup_complete
+        assert mock_warn.call_count == 2
+        warn_msgs = [call.args[0] for call in mock_warn.call_args_list]
+        assert any("Ignoring invalid persisted etags" in msg for msg in warn_msgs)
+        assert any("Ignoring invalid persisted remote_hashes" in msg for msg in warn_msgs)
+
+    mock_store.async_load = AsyncMock(
+        return_value={
+            "etags": {
+                "valid_key": "valid_value",
+                "invalid_key": 123,
+                456: "invalid_val",
+            },
+            "remote_hashes": {
+                "valid_hash_key": "hash_val",
+                "broken": None,
+            },
+        }
+    )
+
+    coordinator.setup_complete = False
+    with patch("custom_components.blueprints_updater.coordinator._LOGGER.warning") as mock_warn:
+        await coordinator.async_setup()
+        assert coordinator._persisted_etags == {"valid_key": "valid_value"}
+        assert coordinator._persisted_hashes == {"valid_hash_key": "hash_val"}
+        assert coordinator.setup_complete
+        assert mock_warn.call_count == 2
+
+        mock_warn.assert_any_call(
+            "Dropped %d invalid ETag entries from storage (non-string keys or values)", 2
+        )
+        mock_warn.assert_any_call("Dropped %d invalid remote hash entries from storage", 1)

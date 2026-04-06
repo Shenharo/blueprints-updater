@@ -10,6 +10,8 @@ CONF_AUTO_UPDATE = "auto_update"
 CONF_MAX_BACKUPS = "max_backups"
 
 DEFAULT_MAX_BACKUPS = 3
+MIN_BACKUPS = 1
+MAX_BACKUPS = 10
 
 FILTER_MODE_ALL = "all"
 FILTER_MODE_WHITELIST = "whitelist"
@@ -17,6 +19,8 @@ FILTER_MODE_BLACKLIST = "blacklist"
 ALLOWED_RELOAD_DOMAINS = {"automation", "script", "template"}
 
 DEFAULT_UPDATE_INTERVAL_HOURS = 24
+MIN_UPDATE_INTERVAL = 1
+MAX_UPDATE_INTERVAL_HOURS = 720
 
 STORAGE_VERSION = 1
 STORAGE_KEY_DATA = f"{DOMAIN}_data"
@@ -30,7 +34,7 @@ RE_GITHUB_BLOB = re.compile(r"/blob/", re.IGNORECASE)
 RE_GIST_RAW = re.compile(r"/raw/?$", re.IGNORECASE)
 RE_FORUM_TOPIC_ID = re.compile(r"/t/(?:[^/]+/)?(\d+)")
 RE_FORUM_CODE_BLOCK = re.compile(r"<code[^>]*>(.*?)</code>", re.DOTALL)
-RE_BLUEPRINT_KEY = re.compile(r"^(blueprint:.*)$", re.MULTILINE)
+RE_BLUEPRINT_KEY = re.compile(r"^(blueprint:\s*(?:#.*)?)$", re.MULTILINE)
 
 MAX_CONCURRENT_REQUESTS = 5
 REQUEST_TIMEOUT = 15
