@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from homeassistant.core import HomeAssistant
+from protocols import BlueprintCoordinatorProtocol
 
 from custom_components.blueprints_updater.coordinator import BlueprintUpdateCoordinator
 
 
 @pytest.fixture
-def coordinator(hass):
+def coordinator(hass) -> BlueprintCoordinatorProtocol:
     """Fixture for BlueprintUpdateCoordinator."""
     entry = MagicMock()
     entry.options = {"auto_update": False}
@@ -22,13 +24,16 @@ def coordinator(hass):
         "homeassistant.helpers.update_coordinator.DataUpdateCoordinator.__init__",
         return_value=None,
     ):
-        coord = BlueprintUpdateCoordinator(
-            hass,
-            entry,
-            timedelta(hours=24),
+        coord = cast(
+            BlueprintCoordinatorProtocol,
+            BlueprintUpdateCoordinator(
+                hass,
+                entry,
+                timedelta(hours=24),
+            ),
         )
         coord.hass = hass
-        coord.data = cast(Any, {})
+        coord.data = {}
         coord.async_set_updated_data = cast(Any, MagicMock())
         coord.setup_complete = True
         coord._is_safe_path = cast(Any, MagicMock(return_value=True))
@@ -37,7 +42,9 @@ def coordinator(hass):
 
 
 @pytest.mark.asyncio
-async def test_304_response_preserves_updatable_status(hass, coordinator):
+async def test_304_response_preserves_updatable_status(
+    hass: HomeAssistant, coordinator: BlueprintCoordinatorProtocol
+):
     """Test that a 304 response doesn't flip 'Update available' back to 'Up to date'.
 
     This occurs if the local file hasn't been updated.
@@ -78,8 +85,8 @@ async def test_304_response_preserves_updatable_status(hass, coordinator):
     mock_session = MagicMock(spec=httpx.AsyncClient)
     mock_session.get = AsyncMock(return_value=mock_response)
 
-    results_to_notify = []
-    updated_domains = set()
+    results_to_notify: list[str] = []
+    updated_domains: set[str] = set()
     await coordinator._async_update_blueprint_in_place(
         mock_session, path, info, results_to_notify, updated_domains
     )
@@ -90,7 +97,9 @@ async def test_304_response_preserves_updatable_status(hass, coordinator):
 
 
 @pytest.mark.asyncio
-async def test_persistence_of_remote_hashes(hass, coordinator):
+async def test_persistence_of_remote_hashes(
+    hass: HomeAssistant, coordinator: BlueprintCoordinatorProtocol
+):
     """Test that remote hashes are correctly saved and restored."""
     path = "/config/blueprints/test.yaml"
     remote_hash = "some_remote_hash"
@@ -118,12 +127,15 @@ async def test_persistence_of_remote_hashes(hass, coordinator):
 
     await coordinator.async_setup()
 
+    mock_store.async_load.assert_awaited_once()
     assert coordinator._persisted_etags[path] == etag
     assert coordinator._persisted_hashes[path] == remote_hash
 
 
 @pytest.mark.asyncio
-async def test_etag_migration_forces_download(hass, coordinator):
+async def test_etag_migration_forces_download(
+    hass: HomeAssistant, coordinator: BlueprintUpdateCoordinator
+):
     """Test that if remote_hash is missing from persisted data.
 
     The ETag is ignored to force a full download and populate the hash.
@@ -158,8 +170,8 @@ async def test_etag_migration_forces_download(hass, coordinator):
     mock_session = MagicMock(spec=httpx.AsyncClient)
     mock_session.get = AsyncMock(return_value=mock_response)
 
-    results_to_notify = []
-    updated_domains = set()
+    results_to_notify: list[str] = []
+    updated_domains: set[str] = set()
     with patch("custom_components.blueprints_updater.coordinator.hashlib.sha256") as mock_sha:
         mock_sha.return_value.hexdigest.return_value = remote_hash
         await coordinator._async_update_blueprint_in_place(

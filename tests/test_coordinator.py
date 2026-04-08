@@ -8,12 +8,13 @@ import socket
 from datetime import timedelta
 from types import MappingProxyType
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import yaml as yaml_util
+from protocols import BlueprintCoordinatorProtocol
 
 from custom_components.blueprints_updater.const import (
     FILTER_MODE_ALL,
@@ -29,7 +30,7 @@ from custom_components.blueprints_updater.coordinator import BlueprintUpdateCoor
 
 
 @pytest.fixture
-def coordinator(hass):
+def coordinator(hass) -> BlueprintCoordinatorProtocol:
     """Fixture for BlueprintUpdateCoordinator."""
     entry = MagicMock()
     entry.options = MappingProxyType({})
@@ -38,13 +39,16 @@ def coordinator(hass):
         "homeassistant.helpers.update_coordinator.DataUpdateCoordinator.__init__",
         return_value=None,
     ):
-        coord = BlueprintUpdateCoordinator(
-            hass,
-            entry,
-            timedelta(hours=24),
+        coord = cast(
+            BlueprintCoordinatorProtocol,
+            BlueprintUpdateCoordinator(
+                hass,
+                entry,
+                timedelta(hours=24),
+            ),
         )
 
-        coord._listeners = cast(Any, {})
+        coord._listeners = {}
         coord.hass = hass
         coord.data = {}
 
@@ -54,9 +58,61 @@ def coordinator(hass):
         coord.async_set_updated_data = cast(Any, MagicMock(side_effect=_mock_set_data))
         coord.async_update_listeners = cast(Any, MagicMock())
         coord.setup_complete = True
+        coord.last_update_success = True
         coord._is_safe_path = cast(Any, MagicMock(return_value=True))
         coord._is_safe_url = cast(Any, AsyncMock(return_value=True))
         return coord
+
+
+def test_coordinator_protocol_conformance(coordinator):
+    """Verify that BlueprintUpdateCoordinator conforms to BlueprintCoordinatorProtocol."""
+    from protocols import (
+        BlueprintCoordinatorInternal,
+        BlueprintCoordinatorProtocol,
+        BlueprintCoordinatorPublic,
+    )
+
+    def check_protocol(inst, protocol, name):
+        missing = []
+        for attr in protocol.__annotations__:
+            if not hasattr(inst, attr):
+                missing.append(f"Attribute: {attr}")
+        for attr in dir(protocol):
+            if attr.startswith("_") and not attr.startswith("__") and not hasattr(inst, attr):
+                missing.append(f"Private member: {attr}")
+            elif not attr.startswith("_") and not hasattr(inst, attr):
+                missing.append(f"Method/Member: {attr}")
+        assert not missing, f"{name} is missing members: {missing}"
+
+    check_protocol(coordinator, BlueprintCoordinatorPublic, "BlueprintCoordinatorPublic")
+    check_protocol(coordinator, BlueprintCoordinatorInternal, "BlueprintCoordinatorInternal")
+    check_protocol(coordinator, BlueprintCoordinatorProtocol, "BlueprintCoordinatorProtocol")
+    assert isinstance(coordinator, BlueprintCoordinatorProtocol)
+
+
+@pytest.mark.asyncio
+async def test_async_install_blueprint_reload_fallback(coordinator):
+    """Test that reload fallback works when blueprint block is missing or malformed."""
+    path = "test.yaml"
+    content = "invalid: yaml"
+
+    coordinator.async_reload_services = AsyncMock()
+
+    with (
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.replace"),
+    ):
+        await coordinator.async_install_blueprint(path, content, reload_services=True)
+    coordinator.async_reload_services.assert_called_once_with(["automation"])
+
+    coordinator.async_reload_services.reset_mock()
+    coordinator.data = {path: {"domain": "script", "name": "Test"}}
+    with (
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.replace"),
+    ):
+        await coordinator.async_install_blueprint(path, content, reload_services=True)
+    coordinator.async_reload_services.assert_called_once_with(["script"])
 
 
 def test_normalize_url(coordinator):
@@ -183,6 +239,43 @@ not_blueprint:
     nested: true
 """
     assert coordinator._ensure_source_url(content, source_url) == content
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_content_forum_invalid_json_sets_fetch_error(coordinator):
+    """Test that invalid JSON from forum URLs sets fetch_error."""
+    path = "/config/blueprints/test.yaml"
+    source_url = "https://community.home-assistant.io/t/123"
+    info = {
+        "name": "Test",
+        "rel_path": "test.yaml",
+        "source_url": source_url,
+        "domain": "automation",
+        "local_hash": "old_hash",
+    }
+    coordinator.data = {path: info}
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.headers = {"Content-Type": "application/json"}
+    mock_response.text = '{"posts": [ {"cooked": "invalid"}'
+    mock_response.json = MagicMock(side_effect=ValueError("Expecting value"))
+    mock_response.raise_for_status = MagicMock()
+
+    mock_session = MagicMock(spec=httpx.AsyncClient)
+    mock_session.get = AsyncMock(return_value=mock_response)
+
+    results_to_notify = []
+    updated_domains = set()
+
+    await coordinator._async_update_blueprint_in_place(
+        mock_session, path, info, results_to_notify, updated_domains
+    )
+
+    assert "fetch_error" in coordinator.data[path]["last_error"]
+    assert "Invalid JSON response" in coordinator.data[path]["last_error"]
+    assert "123.json" in coordinator.data[path]["last_error"]
+    assert coordinator.data[path]["updatable"] is False
 
 
 def test_scan_blueprints(hass, coordinator):
@@ -445,6 +538,40 @@ async def test_async_install_blueprint(hass, coordinator):
 
 
 @pytest.mark.asyncio
+async def test_async_install_blueprint_domain_normalization(hass, coordinator):
+    """Test that async_install_blueprint correctly normalizes the domain."""
+    path = "/config/blueprints/test.yaml"
+
+    hass.services.has_service = MagicMock(return_value=True)
+    hass.services.async_call = AsyncMock()
+
+    with (
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.replace"),
+        patch("custom_components.blueprints_updater.coordinator.os.path.isfile", return_value=True),
+    ):
+        content_domain = "blueprint:\n  name: Test\n  domain:  script  "
+        await coordinator.async_install_blueprint(path, content_domain)
+        hass.services.async_call.assert_called_once_with("script", "reload")
+        hass.services.async_call.reset_mock()
+        content_no_domain = "blueprint:\n  name: Test"
+        await coordinator.async_install_blueprint(path, content_no_domain)
+        hass.services.async_call.assert_called_once_with("automation", "reload")
+        hass.services.async_call.reset_mock()
+        content_empty_domain = "blueprint:\n  name: Test\n  domain: ''"
+        await coordinator.async_install_blueprint(path, content_empty_domain)
+        hass.services.async_call.assert_called_once_with("automation", "reload")
+
+        hass.services.async_call.reset_mock()
+        with patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger:
+            content_invalid_domain = "blueprint:\n  name: Test\n  domain:  unknown_domain  "
+            await coordinator.async_install_blueprint(path, content_invalid_domain)
+            hass.services.async_call.assert_called_once_with("automation", "reload")
+            mock_logger.warning.assert_called()
+            assert "unknown_domain" in mock_logger.warning.call_args[0][1]
+
+
+@pytest.mark.asyncio
 async def test_async_update_data_partial_failure(coordinator):
     """Test that one failed blueprint does not stop others."""
     blueprints = {
@@ -475,7 +602,11 @@ async def test_async_update_data_partial_failure(coordinator):
     mock_bad_resp = MagicMock(spec=httpx.Response)
     mock_bad_resp.status_code = 404
     mock_bad_resp.headers = {}
-    mock_bad_resp.raise_for_status = MagicMock(side_effect=Exception("404 Not Found"))
+    mock_bad_resp.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError(
+            "404 Not Found", request=MagicMock(), response=mock_bad_resp
+        )
+    )
 
     with (
         patch(
@@ -537,7 +668,9 @@ async def test_async_background_refresh_503_resilience(coordinator):
     mock_503_resp.status_code = 503
     mock_503_resp.headers = {}
     mock_503_resp.raise_for_status = MagicMock(
-        side_effect=Exception("503 Backend.max_conn reached")
+        side_effect=httpx.HTTPStatusError(
+            "503 Service Unavailable", request=MagicMock(), response=mock_503_resp
+        )
     )
 
     mock_200_resp = MagicMock(spec=httpx.Response)
@@ -692,7 +825,7 @@ async def test_async_update_blueprint_in_place_errors(coordinator):
     )
     assert "invalid_blueprint" in str(coordinator.data[path]["last_error"])
 
-    mock_session.get.side_effect = Exception("Connection Failed")
+    mock_session.get.side_effect = httpx.ConnectError("Connection Failed")
     await coordinator._async_update_blueprint_in_place(
         mock_session, path, info, results_to_notify, updated_domains
     )
@@ -1747,3 +1880,93 @@ async def test_async_setup_sanitization(hass, coordinator):
             "Dropped %d invalid ETag entries from storage (non-string keys or values)", 2
         )
         mock_warn.assert_any_call("Dropped %d invalid remote hash entries from storage", 1)
+
+
+@pytest.mark.asyncio
+async def test_process_blueprint_content_yaml_error(coordinator):
+    """Test handling of YAML syntax error during content processing."""
+    path = "/config/blueprints/test.yaml"
+    info = {"name": "Test", "local_hash": "hash"}
+    coordinator.data = {path: info}
+
+    with patch(
+        "custom_components.blueprints_updater.coordinator.yaml_util.parse_yaml",
+        side_effect=HomeAssistantError("Invalid YAML"),
+    ):
+        await coordinator._process_blueprint_content(
+            path, info, "invalid", None, "https://url", [], set()
+        )
+
+    assert "yaml_syntax_error|Invalid YAML" in coordinator.data[path]["last_error"]
+
+
+@pytest.mark.asyncio
+async def test_process_blueprint_content_unhandled_error(coordinator):
+    """Test that non-HomeAssistantErrors propagate during content processing."""
+    path = "/config/blueprints/test.yaml"
+    info = {"name": "Test", "local_hash": "hash"}
+    coordinator.data = {path: info}
+
+    with (
+        patch.object(
+            BlueprintUpdateCoordinator, "_ensure_source_url", side_effect=lambda content, _: content
+        ),
+        patch(
+            "custom_components.blueprints_updater.coordinator.yaml_util.parse_yaml",
+            side_effect=ValueError("Unexpected error"),
+        ),
+        pytest.raises(ValueError, match="Unexpected error"),
+    ):
+        await coordinator._process_blueprint_content(
+            path, info, "invalid", None, "https://url", [], set()
+        )
+
+
+@pytest.mark.asyncio
+async def test_async_install_blueprint_yaml_error_logging(coordinator):
+    """Test that YAML errors during install reload are logged as warnings."""
+    path = "/config/blueprints/test.yaml"
+    content = "invalid yaml"
+
+    with (
+        patch("builtins.open", MagicMock()),
+        patch("custom_components.blueprints_updater.coordinator.os.replace"),
+        patch(
+            "custom_components.blueprints_updater.coordinator.yaml_util.parse_yaml",
+            side_effect=HomeAssistantError("Parsing failed"),
+        ),
+        patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger,
+    ):
+        await coordinator.async_install_blueprint(path, content, reload_services=True)
+
+    mock_logger.warning.assert_called_with("Failed to parse blueprint at %s: %s", path, ANY)
+
+
+def test_get_validated_selected_blueprints_hardening(coordinator):
+    """Test the hardening of _get_validated_selected_blueprints."""
+    assert coordinator._get_validated_selected_blueprints(None) == []
+
+    res = coordinator._get_validated_selected_blueprints("  path/to/bp.yaml  ")
+    assert res == ["path/to/bp.yaml"]
+    assert coordinator._get_validated_selected_blueprints("   ") == []
+    assert coordinator._get_validated_selected_blueprints(["a", " b ", None, ""]) == ["a", "b"]
+    assert coordinator._get_validated_selected_blueprints(("a", "b")) == ["a", "b"]
+
+    with patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger:
+        assert coordinator._get_validated_selected_blueprints({"key": "value"}) == []
+        mock_logger.error.assert_called()
+        assert "mapping" in mock_logger.error.call_args[0][0]
+    with patch("custom_components.blueprints_updater.coordinator._LOGGER") as mock_logger:
+        assert coordinator._get_validated_selected_blueprints(123) == []
+        mock_logger.error.assert_called()
+        assert "Invalid type" in mock_logger.error.call_args[0][0]
+
+
+def test_get_validated_filter_mode_normalization(coordinator):
+    """Test that filter mode is normalized (lowercase and stripped)."""
+    assert coordinator._get_validated_filter_mode("  All  ") == "all"
+    assert coordinator._get_validated_filter_mode("WHITELIST") == "whitelist"
+    assert coordinator._get_validated_filter_mode("Blacklist") == "blacklist"
+    assert coordinator._get_validated_filter_mode("invalid") == "all"
+    assert coordinator._get_validated_filter_mode(None) == "all"
+    assert coordinator._get_validated_filter_mode(123) == "all"

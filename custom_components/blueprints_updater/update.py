@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import inspect
 import logging
-from typing import Any
+from functools import cached_property
+from typing import Any, ClassVar
 
 from homeassistant.components.automation import automations_with_blueprint
 from homeassistant.components.script import scripts_with_blueprint
@@ -146,6 +149,15 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
         self._localized_error: str | None = None
 
     @property
+    def available(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
+        """Return True if entity is available.
+
+        This override resolves a descriptor conflict between the base classes
+        while maintaining CoordinatorEntity's availability logic.
+        """
+        return super().available
+
+    @cached_property
     def auto_update(self) -> bool:
         """Return True if auto update is enabled for this entity.
 
@@ -156,7 +168,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
             return False
         return self.coordinator.config_entry.options.get(CONF_AUTO_UPDATE, False)
 
-    @property
+    @cached_property
     def installed_version(self) -> str | None:
         """Version of the blueprint currently installed on the local system.
 
@@ -224,7 +236,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
 
         return notes
 
-    @property
+    @cached_property
     def latest_version(self) -> str | None:
         """Latest version available for install from the remote source.
 
@@ -240,7 +252,7 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
         return data["local_hash"][:8]
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return the extra state attributes like last_error.
 
         Returns:
@@ -254,6 +266,22 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
                 attrs["last_error"] = self._localized_error or error
         return attrs
 
+    _cached_property_names_by_class: ClassVar[dict[type, list[str]]] = {}
+
+    @callback
+    def _clear_cached_properties(self) -> None:
+        """Invalidate cached properties after state changes."""
+        cls = self.__class__
+        if cls not in self._cached_property_names_by_class:
+            self._cached_property_names_by_class[cls] = [
+                name
+                for name, _ in inspect.getmembers(cls, lambda x: isinstance(x, cached_property))
+            ]
+
+        for name in self._cached_property_names_by_class[cls]:
+            with contextlib.suppress(AttributeError):
+                delattr(self, name)
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator by localizing strings.
@@ -262,6 +290,8 @@ class BlueprintUpdateEntity(CoordinatorEntity[BlueprintUpdateCoordinator], Updat
         """
         if self.hass:
             self.hass.async_create_task(self._async_localize_strings())
+
+        self._clear_cached_properties()
         super()._handle_coordinator_update()
 
     async def _async_localize_strings(self) -> None:

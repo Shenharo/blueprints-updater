@@ -1,5 +1,6 @@
 """Fixtures for Blueprints Updater tests."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,14 +36,13 @@ def hass():
     hass_mock.bus.async_listen = MagicMock()
 
     async def async_add_executor_job(target, *args, **kwargs):
+        """Mock running sync jobs in an executor."""
         return target(*args, **kwargs)
 
     hass_mock.async_add_executor_job = AsyncMock(side_effect=async_add_executor_job)
 
     def async_create_background_task(coro, name=None):
         """Mock creating a background task."""
-        import asyncio
-
         return asyncio.create_task(coro, name=name)
 
     hass_mock.async_create_background_task = MagicMock(side_effect=async_create_background_task)

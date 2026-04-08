@@ -11,6 +11,14 @@ from custom_components.blueprints_updater.coordinator import BlueprintUpdateCoor
 from custom_components.blueprints_updater.update import BlueprintUpdateEntity, async_setup_entry
 
 
+async def await_scheduled_update(entity, coordinator):
+    """Wait for a scheduled update task to complete."""
+    with patch.object(entity, "async_write_ha_state"):
+        entity._handle_coordinator_update()
+        coro = coordinator.hass.async_create_task.call_args[0][0]
+        await coro
+
+
 @pytest.mark.asyncio
 async def test_update_entities_lifecycle(hass):
     """Test that entities are added and removed correctly."""
@@ -163,7 +171,21 @@ async def test_entity_properties(coordinator):
     assert await entity_missing.async_release_notes() is None
 
     coordinator.data["/config/blueprints/test.yaml"]["last_error"] = "Fetch Error"
+    await await_scheduled_update(entity, coordinator)
     assert entity.extra_state_attributes == {"last_error": "Fetch Error"}
+
+    path = "/config/blueprints/test.yaml"
+    old_local_hash = coordinator.data[path]["local_hash"]
+    old_remote_hash = coordinator.data[path]["remote_hash"]
+
+    assert entity.installed_version == old_local_hash[:8]
+    assert entity.latest_version == old_remote_hash[:8]
+
+    coordinator.data[path]["local_hash"] = "newlocal"
+    coordinator.data[path]["remote_hash"] = "newremote"
+    await await_scheduled_update(entity, coordinator)
+    assert entity.installed_version == "newlocal"[:8]
+    assert entity.latest_version == "newremote"[:8]
 
 
 @pytest.mark.asyncio
@@ -451,3 +473,41 @@ async def test_async_update_entities_migration(hass):
         )
         mock_entity_registry.async_remove.assert_called_once_with("update.orphan")
         hass.states.async_remove.assert_called_once_with("update.orphan")
+
+
+@pytest.mark.asyncio
+async def test_entity_auto_update_cache_invalidation(coordinator):
+    """Test that auto_update property is correctly invalidated and refreshed."""
+    entity = BlueprintUpdateEntity(
+        coordinator,
+        "/config/blueprints/test.yaml",
+        coordinator.data["/config/blueprints/test.yaml"],
+    )
+    entity.hass = coordinator.hass
+    entity.entity_id = "update.test"
+
+    assert entity.auto_update is True
+
+    coordinator.config_entry.options = {"auto_update": False}
+
+    await await_scheduled_update(entity, coordinator)
+
+    assert entity.auto_update is False
+
+
+@pytest.mark.asyncio
+async def test_entity_availability_behavior(coordinator):
+    """Test that entity availability correctly follows coordinator state."""
+    entity = BlueprintUpdateEntity(
+        coordinator,
+        "/config/blueprints/test.yaml",
+        coordinator.data["/config/blueprints/test.yaml"],
+    )
+    entity.hass = coordinator.hass
+
+    coordinator.last_update_success = True
+    assert entity.available is True
+    coordinator.last_update_success = False
+    assert entity.available is False
+    coordinator.last_update_success = True
+    assert entity.available is True

@@ -12,12 +12,14 @@ import os
 import random
 import shutil
 import socket
+import textwrap
 import time
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
 import httpx
+from homeassistant.components.blueprint.errors import InvalidBlueprint
 from homeassistant.components.blueprint.models import Blueprint
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
 from homeassistant.config_entries import ConfigEntry
@@ -61,6 +63,36 @@ from .const import (
 from .utils import get_max_backups, retry_async
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _sanitize_error_detail(detail: str, max_length: int = 120) -> str:
+    """Sanitize error detail to avoid delimiter clashes and overly long messages.
+
+    Args:
+        detail: The raw error message string.
+        max_length: Maximum allowed length for the sanitized string.
+
+    Returns:
+        The sanitized and potentially truncated error string.
+
+    """
+    cleaned = detail.replace("|", "/")
+    return textwrap.shorten(cleaned, width=max_length, placeholder="...")
+
+
+class ParsedBlueprintData(TypedDict):
+    """Data extracted from a blueprint YAML file."""
+
+    name: str
+    domain: str
+    source_url: str
+    local_hash: str
+
+
+class BlueprintMetadata(ParsedBlueprintData):
+    """Metadata for a single blueprint file, including its relative path."""
+
+    rel_path: str
 
 
 class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -304,12 +336,13 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             A dictionary containing blueprint information and update status.
 
         """
-        filter_mode = (
+        filter_mode = self._get_validated_filter_mode(
             self.config_entry.options.get(CONF_FILTER_MODE, FILTER_MODE_ALL)
             if self.config_entry
             else FILTER_MODE_ALL
         )
-        selected_blueprints = (
+
+        selected_blueprints = self._get_validated_selected_blueprints(
             self.config_entry.options.get(CONF_SELECTED_BLUEPRINTS, []) if self.config_entry else []
         )
 
@@ -590,14 +623,14 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                     source_url,
                     error_msg,
                 )
-                return f"incompatible|{error_msg}"
-        except Exception as err:
+                return f"incompatible|{_sanitize_error_detail(error_msg)}"
+        except InvalidBlueprint as err:
             _LOGGER.warning(
                 "Blueprint validation failed for %s: %s",
                 source_url,
                 err,
             )
-            return f"validation_error|{err}"
+            return f"validation_error|{_sanitize_error_detail(str(err))}"
         return None
 
     async def async_reload_services(self, domains: list[str] | set[str] | None = None) -> None:
@@ -741,12 +774,22 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
 
             if reload_services:
                 domain = "automation"
-                try:
-                    blueprint_dict = yaml_util.parse_yaml(remote_content)
-                    if isinstance(blueprint_dict, dict) and "blueprint" in blueprint_dict:
-                        domain = blueprint_dict["blueprint"].get("domain", "automation")
-                except Exception as err:
-                    _LOGGER.warning("Failed to parse blueprint at %s: %s", path, err)
+                if bp_block := self._get_blueprint_block(path, remote_content):
+                    domain = self._normalize_domain(bp_block.get("domain"))
+                elif self.data and path in self.data:
+                    domain = self.data[path].get("domain", "automation")
+                    _LOGGER.debug(
+                        "Blueprint metadata at %s is malformed; "
+                        "using cached domain '%s' for reload",
+                        path,
+                        domain,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Blueprint metadata at %s is malformed and not cached; "
+                        "falling back to 'automation' domain for reload",
+                        path,
+                    )
                 await self.async_reload_services([domain])
 
             if self.data and path in self.data:
@@ -976,7 +1019,7 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                         "remote_hash": None,
                         "remote_content": None,
                         "updatable": False,
-                        "last_error": "unsafe_url|",
+                        "last_error": f"unsafe_url|{_sanitize_error_detail(str(source_url))}",
                         "etag": None,
                     }
                 )
@@ -999,23 +1042,40 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 remote_content, new_etag = await self._handle_not_modified_case(
                     session, path, info, normalized_url, new_etag
                 )
+        except (TimeoutError, httpx.HTTPError, HomeAssistantError) as err:
+            _LOGGER.warning(
+                "Failed to fetch blueprint from %s: %s",
+                source_url,
+                err,
+            )
+            if self.data and path in self.data:
+                self.data[path].update(
+                    {
+                        "last_error": f"fetch_error|{_sanitize_error_detail(str(err))}",
+                        "remote_hash": None,
+                        "remote_content": None,
+                        "updatable": False,
+                    }
+                )
+            return
 
-            if remote_content is None:
-                return
+        if remote_content is None:
+            return
 
-            if remote_content == "":
-                if self.data and path in self.data:
-                    self.data[path].update(
-                        {
-                            "last_error": "empty_content|",
-                            "remote_hash": None,
-                            "remote_content": None,
-                            "updatable": False,
-                            "invalid_remote_hash": None,
-                        }
-                    )
-                return
+        if remote_content == "":
+            if self.data and path in self.data:
+                self.data[path].update(
+                    {
+                        "last_error": "empty_content|",
+                        "remote_hash": None,
+                        "remote_content": None,
+                        "updatable": False,
+                        "invalid_remote_hash": None,
+                    }
+                )
+            return
 
+        try:
             await self._process_blueprint_content(
                 path,
                 info,
@@ -1025,18 +1085,18 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 results_to_notify,
                 updated_domains,
             )
-
         except Exception as err:
-            _LOGGER.error("Error fetching blueprint from %s: %s", source_url, err)
+            _LOGGER.error("Error processing blueprint from %s: %s", source_url, err)
             if self.data and path in self.data:
                 self.data[path].update(
                     {
-                        "last_error": f"fetch_error|{err}",
+                        "last_error": f"processing_error|{_sanitize_error_detail(str(err))}",
                         "remote_hash": None,
                         "remote_content": None,
                         "updatable": False,
                     }
                 )
+            return
 
     async def _handle_not_modified_case(
         self,
@@ -1116,8 +1176,8 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         try:
             blueprint_dict = yaml_util.parse_yaml(remote_content)
             last_error = self._validate_blueprint(blueprint_dict, source_url)
-        except Exception as err:
-            last_error = f"yaml_syntax_error|{err}"
+        except (HomeAssistantError, InvalidBlueprint) as err:
+            last_error = f"yaml_syntax_error|{_sanitize_error_detail(str(err))}"
 
         auto_update = self.config_entry and self.config_entry.options.get(CONF_AUTO_UPDATE, False)
 
@@ -1142,7 +1202,7 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 return
             except Exception as err:
                 _LOGGER.error("Auto-update failed for %s: %s", path, err)
-                last_error = f"auto_update_failed|{err}"
+                last_error = f"auto_update_failed|{_sanitize_error_detail(str(err))}"
 
         if self.data and path in self.data:
             if last_error:
@@ -1248,7 +1308,12 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         new_etag = response.headers.get("ETag")
         parsed_url = urlparse(current_url)
         if DOMAIN_HA_FORUM in parsed_url.netloc:
-            json_data = response.json()
+            try:
+                json_data = response.json()
+            except ValueError as err:
+                raise httpx.HTTPError(
+                    f"Invalid JSON response from forum URL {current_url}: {err}"
+                ) from err
             content = self._parse_forum_content(json_data)
             return (content or ""), new_etag
 
@@ -1394,22 +1459,173 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         return content
 
     @staticmethod
+    def _normalize_domain(domain: Any) -> str:
+        """Normalize and validate the blueprint domain, defaulting to 'automation'.
+
+        Args:
+            domain: The domain to normalize.
+
+        Returns:
+            The normalized lowercase domain string.
+
+        """
+        if isinstance(domain, str):
+            norm_domain = domain.strip().lower()
+            if norm_domain in ALLOWED_RELOAD_DOMAINS:
+                return norm_domain
+
+        if domain and str(domain).strip():
+            _LOGGER.warning(
+                "Unsupported or unknown blueprint domain '%s' encountered; "
+                "falling back to 'automation'. Supported: %s",
+                domain,
+                ", ".join(ALLOWED_RELOAD_DOMAINS),
+            )
+
+        return "automation"
+
+    @staticmethod
+    def _should_include_blueprint(rel_path: str, filter_mode: str, selected_set: set[str]) -> bool:
+        """Check if a blueprint should be included based on filtering rules."""
+        if filter_mode == FILTER_MODE_BLACKLIST:
+            return rel_path not in selected_set
+
+        if filter_mode == FILTER_MODE_WHITELIST:
+            return rel_path in selected_set
+
+        return True
+
+    def _get_validated_filter_mode(self, filter_mode: Any) -> str:
+        """Normalize and validate filter mode.
+
+        Args:
+            filter_mode: The filter mode to validate.
+
+        Returns:
+            A valid filter mode (FILTER_MODE_ALL as fallback).
+
+        """
+        if not isinstance(filter_mode, str):
+            if filter_mode is not None:
+                _LOGGER.warning(
+                    "Invalid filter mode type '%s'; falling back to all", type(filter_mode).__name__
+                )
+            return FILTER_MODE_ALL
+
+        normalized_mode = filter_mode.strip().lower()
+        if normalized_mode in (FILTER_MODE_ALL, FILTER_MODE_WHITELIST, FILTER_MODE_BLACKLIST):
+            return normalized_mode
+
+        _LOGGER.warning("Invalid filter mode '%s' in config; falling back to all", filter_mode)
+        return FILTER_MODE_ALL
+
+    @staticmethod
+    def _get_validated_selected_blueprints(selected: Any) -> list[str]:
+        """Validate and coerce selected blueprints into a list of strings.
+
+        Args:
+            selected: The selection value to validate.
+
+        Returns:
+            A valid list of blueprint paths.
+
+        """
+        if selected is None:
+            return []
+
+        if isinstance(selected, str):
+            stripped = selected.strip()
+            return [stripped] if stripped else []
+
+        if isinstance(selected, (list, tuple)):
+            return [str(item).strip() for item in selected if item and str(item).strip()]
+
+        if isinstance(selected, dict):
+            _LOGGER.error(
+                "Invalid type for selected blueprints: mapping (%s) provided; "
+                "expected string or sequence of strings. Ignoring value.",
+                type(selected).__name__,
+            )
+            return []
+
+        _LOGGER.error(
+            "Invalid type for selected blueprints: %s; expected string or sequence of strings. "
+            "Ignoring value.",
+            type(selected).__name__,
+        )
+        return []
+
+    @staticmethod
+    def _get_blueprint_block(path: str, content: str) -> dict[str, Any] | None:
+        """Extract the 'blueprint' metadata block from YAML content."""
+        try:
+            blueprint_dict = yaml_util.parse_yaml(content)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Failed to parse blueprint at %s: %s", path, err)
+            return None
+
+        if not isinstance(blueprint_dict, dict):
+            _LOGGER.debug(
+                "Skipping blueprint at %s: parsed YAML is not a mapping (got %s)",
+                path,
+                type(blueprint_dict).__name__,
+            )
+            return None
+
+        if "blueprint" not in blueprint_dict:
+            _LOGGER.debug(
+                "Skipping blueprint at %s: missing top-level 'blueprint' key",
+                path,
+            )
+            return None
+
+        bp_info = blueprint_dict["blueprint"]
+        if not isinstance(bp_info, dict):
+            _LOGGER.debug(
+                "Skipping blueprint at %s: 'blueprint' key is not a mapping (got %s)",
+                path,
+                type(bp_info).__name__,
+            )
+            return None
+
+        return bp_info
+
+    @staticmethod
+    def _parse_blueprint_data(path: str, content: str) -> ParsedBlueprintData | None:
+        """Parse raw YAML content and extract blueprint metadata if valid."""
+        bp_info = BlueprintUpdateCoordinator._get_blueprint_block(path, content)
+        if bp_info is None:
+            return None
+
+        source_url = bp_info.get("source_url")
+        if not isinstance(source_url, str) or not source_url.strip():
+            _LOGGER.debug(
+                "Skipping blueprint at %s: missing or empty 'source_url' in blueprint metadata",
+                path,
+            )
+            return None
+
+        raw_name = bp_info.get("name")
+        name = (
+            raw_name.strip()
+            if isinstance(raw_name, str) and raw_name.strip()
+            else os.path.basename(path)
+        )
+        domain = BlueprintUpdateCoordinator._normalize_domain(bp_info.get("domain"))
+        return {
+            "name": name,
+            "domain": domain,
+            "source_url": source_url.strip(),
+            "local_hash": hashlib.sha256(content.encode()).hexdigest(),
+        }
+
+    @staticmethod
     def scan_blueprints(
         hass: HomeAssistant,
         filter_mode: str,
         selected_blueprints: list[str],
-    ) -> dict[str, Any]:
-        """Scan the blueprints directory for YAML files with source_url.
-
-        Args:
-            hass: HomeAssistant instance.
-            filter_mode: Blueprint filter mode.
-            selected_blueprints: List of selected blueprints.
-
-        Returns:
-            Dictionary mapping paths to blueprint properties.
-
-        """
+    ) -> dict[str, BlueprintMetadata]:
+        """Scan the blueprints directory for YAML files with source_url."""
         blueprint_path: str = hass.config.path("blueprints")
         found_blueprints = {}
 
@@ -1418,7 +1634,6 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             return found_blueprints
 
         _LOGGER.debug("Scanning blueprints in: %s", blueprint_path)
-
         selected_set = set(selected_blueprints)
 
         for root, _, files in os.walk(blueprint_path):
@@ -1429,30 +1644,24 @@ class BlueprintUpdateCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                 full_path = os.path.join(root, file)
                 rel_path = os.path.relpath(full_path, blueprint_path).replace("\\", "/")
 
-                if filter_mode == FILTER_MODE_BLACKLIST and rel_path in selected_set:
-                    continue
-                if filter_mode == FILTER_MODE_WHITELIST and rel_path not in selected_set:
+                if not BlueprintUpdateCoordinator._should_include_blueprint(
+                    rel_path, filter_mode, selected_set
+                ):
                     continue
 
                 try:
                     with open(full_path, encoding="utf-8") as f:
                         content = f.read()
-                    blueprint_dict = yaml_util.parse_yaml(content)
 
-                    if isinstance(blueprint_dict, dict) and "blueprint" in blueprint_dict:
-                        bp_info = blueprint_dict["blueprint"]
-                        if not isinstance(bp_info, dict):
-                            continue
-                        source_url = bp_info.get("source_url")
-                        if isinstance(source_url, str) and (normalized_url := source_url.strip()):
-                            found_blueprints[full_path] = {
-                                "name": bp_info.get("name", file),
-                                "rel_path": rel_path,
-                                "domain": bp_info.get("domain", "automation"),
-                                "source_url": normalized_url,
-                                "local_hash": hashlib.sha256(content.encode()).hexdigest(),
-                            }
-                except Exception as err:
+                    if parsed_data := BlueprintUpdateCoordinator._parse_blueprint_data(
+                        full_path, content
+                    ):
+                        found_blueprints[full_path] = {
+                            **parsed_data,
+                            "rel_path": rel_path,
+                        }
+
+                except OSError as err:
                     _LOGGER.error("Error reading blueprint at %s: %s", full_path, err)
 
         return found_blueprints
